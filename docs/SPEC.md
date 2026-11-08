@@ -1,4 +1,4 @@
-# Core SDK v2 (`@core`) — Complete Architecture, Methods Map & Per-Function Specification (`SDK_SPEC.md`)
+# Corge (`@corgelabs/corge`) — Complete Architecture, Methods Map & Per-Function Specification (`SPEC.md`)
 
 > **Version**: 2.3 (Flat Domain Barrel & `<= 500 LOC` Class-Composed Architecture, Methods Map & Per-Function Specification)  
 > **Runtime Stack**: Node.js 24 LTS (`nodejs24` GA on Cloud Functions 2nd Gen) · Hono · Cloud Tasks · Cloud Firestore Enterprise · Firebase Storage · Vertex AI (`claude-haiku-5-5`, `claude-sonnet-4-5`, `text-embedding-005`) · Mistral OCR (`mistral-ocr-latest`) · TypeSafe Jev (`jev-latest`) · Jina Reader (`r.jina.ai`)
@@ -52,7 +52,7 @@ Every function, method, class, and closure across the flat domain barrel files i
 
 | Tier | Badge | Access Path | Architectural Role |
 | :--- | :--- | :--- | :--- |
-| **Tier 1** | `Public (core.*)` | `core.<ns>.<fn>` / `useCore().<ns>.<fn>` | Primary SDK surface for application developers (`createApp`, `define.*`, `db.*`, `files.*`, `ai.*`, `attachments.*`, `tasks.*`, `auth.*`, `chat.*`, `step.*`, `schemas.*`, `errors.*`, `types.*`). |
+| **Tier 1** | `Public (core.*)` | `core.<ns>.<fn>` / `useCore().<ns>.<fn>` | Primary surface for application developers (`createApp`, `define.*`, `db.*`, `files.*`, `ai.*`, `attachments.*`, `tasks.*`, `auth.*`, `chat.*`, `step.*`, `schemas.*`, `errors.*`, `types.*`). |
 | **Tier 2** | `Internal Hook (core.internals.*)` | `core.internals.<group>.<fn>` | Non-enumerable getter on `Core.prototype` exposing low-level resilience (`singleflight`, `circuitBreaker`, `acquireLimit`), context runners, registries, workflow engine primitives, and auth token/revocation internals for advanced orchestration and test harnesses. |
 | **Tier 3** | `Domain Barrel Export (<domain>/index.ts)` | `export class *Service` / `export * from './schema'` | Domain `<domain>/index.ts` barrels imported exclusively by `src/core/index.ts` and cross-domain callers (`'../<domain>'`), re-exporting `*Service`, public `schema.ts` symbols, and `core*Routes`. |
 | **Tier 4** | `Private (#method / Flat Sibling)` | `#method` on `*Service` or flat sibling sub-engine | Encapsulated `#private` class methods and domain-internal flat sibling files (`tasks/{steps,watcher,worker}.ts`, `auth/{session,oidc,recovery}.ts`, `chat/{context,stream}.ts`, `router/guard.ts`, `<domain>/utils.ts`). |
@@ -1641,5 +1641,3 @@ export const {
 - **`core.payments.{subscribe, changeSubscriptionTier, cancelSubscription, getSubscription}`**: Manages full subscription lifecycles including free-tier activation, recurring checkouts, prorated upgrades/downgrades (`prorated_immediately`, `next_cycle`, `none`), and period-end or immediate cancellation, synchronized with `payment_customer/{userId}`.
 - **`core.payments.{getUsage, checkQuota, recordUsage}` & Automatic AI Token Metering (`core.internals.payments.{enforceAiQuota, trackAiUsage}`)**: Tracks per-period AI token and custom metric consumption in `payment_usage/{userId}_{periodKey}` via Firestore transactions, automatically deducts one-time `bonusAiTokens` / `bonusMetrics` when base plan limits are reached, enforces `402 Payment Required` (`QUOTA_EXCEEDED`) when hard caps are exceeded, and ingests overage meter events to Dodo (`POST /events/ingest`) and Stripe (`POST /v1/billing/meter_events`).
 - **`core.internals.payments.verifyAndProcessWebhook(provider, rawBody, headers)`**: Verifies Stripe (`Stripe-Signature: t=...,v1=...`) and Dodo Payments (`webhook-id`, `webhook-timestamp`, `webhook-signature` Standard Webhooks `whsec_<base64>`) HMAC-SHA256 signatures using `node:crypto` `timingSafeEqual` and a 300-second replay window, deduplicates events in `payment_transaction/{txId}`, reconciles `payment_customer/{userId}`, and atomically grants `bonusAiTokens` / `credits` / `bonusMetrics`.
-
-

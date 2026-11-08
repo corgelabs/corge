@@ -19,14 +19,14 @@
       "default": "./dist/index.js"
     },
     "./tsconfig.base.json": "./tsconfig.base.json",
-    "./spec": "./docs/SDK_SPEC.md"
+    "./spec": "./docs/SPEC.md"
   },
   "files": [
     "dist",
     "src",
     "infra",
     "tests",
-    "docs/SDK_SPEC.md",
+    "docs/SPEC.md",
     "tsconfig.base.json"
   ],
   "engines": {

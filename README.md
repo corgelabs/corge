@@ -10,7 +10,7 @@
 [![GCP Cloud Functions v2](https://img.shields.io/badge/GCP-Cloud_Functions_v2-4285F4?logo=googlecloud&logoColor=white)](https://cloud.google.com/functions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-f59e0b.svg)](https://opensource.org/licenses/MIT)
 
-[Why Corge?](#-why-corge-stop-writing-glue-code) · [30-Second Quickstart](#-30-second-quickstart) · [4 Architectural Pillars](#-the-4-architectural-pillars) · [Built for AI Coding Agents](#-built-for-ai-coding-agents) · [CLI Reference](#-built-in-corge-cli) · [Full SDK Spec](./docs/SDK_SPEC.md)
+[Why Corge?](#-why-corge-stop-writing-glue-code) · [Quickstart](#-30-second-quickstart) · [Architecture](#-the-4-architectural-pillars) · [Built for AI Coding Agents](#-built-for-ai-coding-agents) · [CLI](#-built-in-corge-cli) · [Reference](./docs/SPEC.md)
 
 </div>
 
@@ -241,13 +241,13 @@ my-saas-backend/
 
 ## 🤖 Built for AI Coding Agents
 
-`@corgelabs/corge` ships its complete machine-readable specification inside the npm package at `node_modules/@corgelabs/corge/docs/SDK_SPEC.md` (`@corgelabs/corge/spec`).
+`@corgelabs/corge` ships its complete machine-readable specification inside the npm package at `node_modules/@corgelabs/corge/docs/SPEC.md` (`@corgelabs/corge/spec`).
 
 Add this rule to your consumer repository's `AGENTS.md`, `.cursorrules`, or `.gemini/GEMINI.md` so your coding agent writes 100% idiomatic Corge code on the first try:
 
 ```markdown
-## Corge SDK (`@corgelabs/corge`) Rules
-- Before creating or modifying routes, collections, agents, workflows, payments, or emails, read `node_modules/@corgelabs/corge/docs/SDK_SPEC.md`.
+## Corge (`@corgelabs/corge`) Rules
+- Before creating or modifying routes, collections, agents, workflows, payments, or emails, read `node_modules/@corgelabs/corge/docs/SPEC.md`.
 - Import `core` and `useCore` from `@corgelabs/corge`.
 - Keep all consumer code strictly declarative (`core.define.{collections,routes,agents,plans,products,emailTemplates}`) and wrap multi-step side effects inside `useCore().step()` with `rollback` handlers where applicable.
 ```
