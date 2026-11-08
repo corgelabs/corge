@@ -17,8 +17,7 @@ switch (command) {
     await deployConsumerApp(rest[0] as 'prod' | 'dev' | undefined)
     break
   case 'test':
-  case 'test:chaos':
-    await runTestSuite(rest[0])
+    await runTestSuite()
     break
   case 'check':
     runTypeCheck()
@@ -52,7 +51,7 @@ switch (command) {
         '  corge dev                  Start local Hono dev server with GCP Secret Manager + watch mode',
         '  corge build                Bundle src/index.ts + @corgelabs/corge into dist/index.cjs',
         '  corge deploy <prod|dev>    Build, merge base rules/indexes, and deploy to Firebase',
-        '  corge test [file]          Bundle and execute E2E contract test suite',
+        '  corge test                 Bundle and execute E2E contract test suite',
         '  corge check                Run tsc --noEmit in workspace',
         '  corge init                 Scaffold consumer project structure',
         '  corge link [path]          Link local corgelabs/corge checkout into node_modules',

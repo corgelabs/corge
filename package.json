@@ -36,7 +36,6 @@
     "build": "tsc -p tsconfig.build.json && esbuild src/index.ts --bundle --platform=node --target=node24 --format=esm --packages=external --sourcemap --outfile=dist/index.js && esbuild bin/corge.ts --bundle --platform=node --target=node24 --format=esm --packages=external --banner:js=\"#!/usr/bin/env node\" --outfile=dist/bin/corge.js && chmod +x dist/bin/corge.js",
     "check": "tsc --noEmit",
     "test": "node dist/bin/corge.js test",
-    "test:chaos": "node dist/bin/corge.js test:chaos",
     "prepublishOnly": "npm run check && npm run build"
   },
   "dependencies": {

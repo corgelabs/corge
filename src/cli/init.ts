@@ -10,19 +10,15 @@ export const runTypeCheck = (cwd = process.cwd()): void => {
   process.exitCode = res.status ?? 1
 }
 
-export const runTestSuite = async (testFile?: string, cwd = process.cwd()): Promise<void> => {
+export const runTestSuite = async (cwd = process.cwd()): Promise<void> => {
   await loadGcpSecrets(undefined, cwd)
   const corgeRoot = getCorgeRootDir()
   const outDir = join(cwd, '.corge')
   mkdirSync(outDir, { recursive: true })
   const outFile = join(outDir, 'test.js')
 
-  const resolvedEntry = (() => {
-    if (testFile) return resolve(cwd, testFile)
-    const localTest = join(cwd, 'tests/e2e.test.ts')
-    if (existsSync(localTest)) return localTest
-    return join(corgeRoot, 'tests/e2e.test.ts')
-  })()
+  const localTest = join(cwd, 'tests/e2e.test.ts')
+  const resolvedEntry = existsSync(localTest) ? localTest : join(corgeRoot, 'tests/e2e.test.ts')
 
   await build({
     absWorkingDir: cwd,
