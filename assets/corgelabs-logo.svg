@@ -1,0 +1,129 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2560 1024" width="2560" height="1024">
+  <defs>
+    <!-- Deep Obsidian Slate Background -->
+    <radialGradient id="bgGrad" cx="36%" cy="50%" r="72%">
+      <stop offset="0%" stop-color="#111827" />
+      <stop offset="55%" stop-color="#0B0F19" />
+      <stop offset="100%" stop-color="#060911" />
+    </radialGradient>
+
+    <!-- Warm Core Ambient Glow (Behind Corge Emblem) -->
+    <radialGradient id="coreGlow" cx="50%" cy="54%" r="24%">
+      <stop offset="0%" stop-color="#FDE047" stop-opacity="0.36" />
+      <stop offset="48%" stop-color="#F59E0B" stop-opacity="0.14" />
+      <stop offset="100%" stop-color="#F59E0B" stop-opacity="0" />
+    </radialGradient>
+
+    <!-- Subtle Ambient Wordmark Glow -->
+    <radialGradient id="wordmarkGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#F59E0B" stop-opacity="0.14" />
+      <stop offset="65%" stop-color="#D97706" stop-opacity="0.05" />
+      <stop offset="100%" stop-color="#D97706" stop-opacity="0" />
+    </radialGradient>
+
+    <!-- Inner Ear Pinna Cavity Gradient -->
+    <linearGradient id="earInnerCavity" x1="18%" y1="5%" x2="85%" y2="95%">
+      <stop offset="0%" stop-color="#0B0F19" stop-opacity="0.96" />
+      <stop offset="38%" stop-color="#451A03" stop-opacity="0.88" />
+      <stop offset="78%" stop-color="#92400E" />
+      <stop offset="100%" stop-color="#D97706" />
+    </linearGradient>
+
+    <!-- 1. UNIFIED LIGHT GRADIENT (Top-Lit: Bright Top -> Shadowed Bottom) -->
+    <linearGradient id="gradLight" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#FEF08A" />
+      <stop offset="32%" stop-color="#FACC15" />
+      <stop offset="72%" stop-color="#F59E0B" />
+      <stop offset="100%" stop-color="#D97706" />
+    </linearGradient>
+
+    <!-- 2. UNIFIED DARK/SHADOW GRADIENT (Top-Lit: Warm Amber Top -> Deep Umber Bottom) -->
+    <linearGradient id="gradDark" x1="50%" y1="0%" x2="50%" y2="100%">
+      <stop offset="0%" stop-color="#F59E0B" />
+      <stop offset="50%" stop-color="#B45309" />
+      <stop offset="100%" stop-color="#78350F" />
+    </linearGradient>
+
+    <!-- Directional Variants of #gradLight & #gradDark for 3D Corgi Facial Lighting -->
+    <linearGradient id="gradLightRev" href="#gradLight" x1="50%" y1="100%" x2="50%" y2="0%" />
+    <linearGradient id="gradDarkRev" href="#gradDark" x1="50%" y1="100%" x2="50%" y2="0%" />
+    <linearGradient id="gradLightBrow" href="#gradLight" x1="72%" y1="0%" x2="18%" y2="100%" />
+    <linearGradient id="gradDarkBrow" href="#gradDark" x1="72%" y1="0%" x2="18%" y2="100%" />
+    <linearGradient id="gradLightCheek" href="#gradLight" x1="15%" y1="0%" x2="85%" y2="100%" />
+    <linearGradient id="gradDarkCheek" href="#gradDark" x1="15%" y1="0%" x2="85%" y2="100%" />
+  </defs>
+
+  <!-- 1. Deep Obsidian Slate Background & Ambient Glows -->
+  <rect width="2560" height="1024" fill="url(#bgGrad)" />
+  <ellipse cx="1660" cy="512" rx="820" ry="260" fill="url(#wordmarkGlow)" />
+
+  <!-- 2. CORGE EMBLEM (Left Side: x = 125.20..759.02, y = 125.20..898.80, Height = 773.60px) -->
+  <g id="corge-emblem" transform="translate(-69.89, 10.8)">
+    <circle cx="512" cy="536" r="270" fill="url(#coreGlow)" />
+
+    <g id="ear-left">
+      <path d="M 263.8 474.2 C 192 348 176 212 218 132 C 232 106 258 110 284 136 C 342 190 388 262 423 330.4 C 406 336.5 389.5 344 374 353 C 344 294 302 224 256 172 C 242 158 232 158 226 176 C 208 248 228 352 286 437.5 C 278 449.2 270.6 461.5 263.8 474.2 Z" fill="url(#gradLight)" />
+      <path d="M 264.0 449.6 C 202.3 331.6 191.3 207.6 228.6 137.6 C 238.4 121.0 249.2 121.5 275.5 144.5 C 329.4 194.6 372.2 259.9 406.2 324.0 C 393.3 329.1 380.6 335.5 368.5 342.3 C 338.9 285.7 299.2 220.9 256.0 172.0 C 242.0 158.0 232.0 158.0 226.0 176.0 C 208.8 245.0 226.4 343.3 278.9 426.6 C 276.3 430.4 268.2 442.2 264.0 449.6 Z" fill="url(#gradDark)" />
+      <path d="M 248 190 C 232 256 248 346 297.2 421.7 C 315 402 334 383.5 354.5 366.5 C 325 306 289 244 248 190 Z" fill="url(#earInnerCavity)" />
+      <path d="M 254.7 199.0 C 292.9 250.8 326.6 309.3 354.5 366.5 C 334.0 383.5 315.0 402.0 297.2 421.7 C 294.9 418.2 292.7 414.7 290.6 411.2 C 305.8 394.3 322.3 378.4 339.6 363.3 C 312.7 309.3 280.9 254.7 245.1 206.1 Z" fill="url(#gradLightRev)" />
+    </g>
+    <use href="#ear-left" transform="translate(1024, 0) scale(-1, 1)" />
+
+    <g id="brow-left">
+      <path d="M 503 334.9 C 430 336 362 368 312 432 C 276 478 248 548 226 622 L 404 486.5 Z" fill="url(#gradLightBrow)" />
+      <path d="M 479.8 348.4 C 419.3 355.3 364.0 385.0 321.5 439.4 C 292.8 475.9 268.6 530.0 248.8 589.6 L 395.1 478.2 Z" fill="url(#gradDarkBrow)" />
+    </g>
+    <use href="#brow-left" transform="translate(1024, 0) scale(-1, 1)" />
+
+    <g id="diamond-core">
+      <polygon points="512,354 418,498 460,584 564,584 606,498" fill="url(#gradLightRev)" />
+      <path id="crystal-half-left" d="M 506 385.1 L 434.4 494.9 L 463.7 504.9 L 506 444.1 Z M 506 465.1 L 472.5 513.2 L 487.2 572 L 506 572 Z M 436.3 508.2 L 461 516.6 L 474.8 572 L 467.5 572 Z" fill="url(#gradDarkRev)" />
+      <use href="#crystal-half-left" transform="translate(1024, 0) scale(-1, 1)" />
+    </g>
+
+    <g id="eye-left">
+      <polygon points="305.6,584 403.6,509.5 440,584" fill="url(#gradLightRev)" />
+      <polygon points="341.2,572 399.2,527.9 420.8,572" fill="url(#gradDarkRev)" />
+    </g>
+    <use href="#eye-left" transform="translate(1024, 0) scale(-1, 1)" />
+
+    <g id="cheek-left">
+      <path d="M 237.3 636 L 296 591.4 C 318 638 364 668 416 681 C 432 685 438 691 438 696 C 438 702 428 708 390 724 L 390 770 Z" fill="url(#gradLightCheek)" />
+      <path d="M 256.3 636.7 L 291.1 610.2 C 313 650 356 678 408 691 C 415 693 418 695 415 697.5 L 378 716.9 L 378 743.5 Z" fill="url(#gradDarkCheek)" />
+    </g>
+    <use href="#cheek-left" transform="translate(1024, 0) scale(-1, 1)" />
+
+    <g id="forge-anvil">
+      <path d="M 324 602 L 700 602 C 682 636 644 654 602 664 C 578 670 568 682 568 696 C 568 710 584 720 616 730 L 616 776 L 560.8 776 A 52 52 0 0 0 463.2 776 L 408 776 L 408 730 C 440 720 456 710 456 696 C 456 682 446 670 422 664 C 380 654 342 636 324 602 Z" fill="url(#gradLight)" />
+      <path d="M 343.2 614 L 680.8 614 C 663 634 631 646 599 652.5 C 569 660 556 676 556 696 C 556 716 574 729 604 739 L 604 764 L 568.5 764 A 64 64 0 0 0 455.5 764 L 420 764 L 420 739 C 450 729 468 716 468 696 C 468 676 455 660 425 652.5 C 393 646 361 634 343.2 614 Z" fill="url(#gradDark)" />
+    </g>
+
+    <g id="chin-apex">
+      <path d="M 408 794 L 478 794 A 34 34 0 0 1 546 794 L 616 794 L 512 888 Z" fill="url(#gradLightRev)" />
+      <path d="M 439.2 806 L 490 806 L 490 794 A 22 22 0 0 1 534 794 L 534 806 L 584.8 806 L 512 871.8 Z" fill="url(#gradDarkRev)" />
+    </g>
+  </g>
+
+  <!-- 3. "CORGE" GEOMETRIC WORDMARK (0.5x Emblem Height = 386.8px, Uniform 96.0px Stems, 18.0px 45-Deg Cross-Cuts & Strict 12.0px Borders) -->
+  <g id="corge-wordmark">
+    <!-- Letter C -->
+    <path d="M 997.38 416.24 L 929.5 348.35 L 959.26 318.6 L 1078.78 318.6 L 1108.54 348.35 L 1040.66 416.24 L 1039.02 414.6 L 999.02 414.6 Z M 1053.38 428.96 L 1121.27 361.08 L 1151.02 390.84 L 1151.02 464 L 1055.02 464 L 1055.02 430.6 Z M 1055.02 560 L 1151.02 560 L 1151.02 633.16 L 1121.27 662.92 L 1053.38 595.04 L 1055.02 593.4 Z M 999.02 609.4 L 1039.02 609.4 L 1040.66 607.76 L 1108.54 675.65 L 1078.78 705.4 L 959.26 705.4 L 929.5 675.65 L 997.38 607.76 Z M 916.77 361.08 L 984.66 428.96 L 983.02 430.6 L 983.02 593.4 L 984.66 595.04 L 916.77 662.92 L 887.02 633.16 L 887.02 390.84 Z" fill="url(#gradLight)" />
+    <path d="M 1000.72 402.6 L 946.47 348.35 L 964.23 330.6 L 1073.81 330.6 L 1091.57 348.35 L 1037.32 402.6 Z M 1067.02 432.3 L 1121.27 378.05 L 1139.02 395.81 L 1139.02 452 L 1067.02 452 Z M 1067.02 572 L 1139.02 572 L 1139.02 628.19 L 1121.27 645.95 L 1067.02 591.7 Z M 1000.72 621.4 L 1037.32 621.4 L 1091.57 675.65 L 1073.81 693.4 L 964.23 693.4 L 946.47 675.65 Z M 916.77 378.05 L 971.02 432.3 L 971.02 591.7 L 916.77 645.95 L 899.02 628.19 L 899.02 395.81 Z" fill="url(#gradDark)" />
+
+    <!-- Letter O -->
+    <path d="M 1302.33 416.24 L 1234.45 348.35 L 1264.2 318.6 L 1407.73 318.6 L 1437.48 348.35 L 1369.6 416.24 L 1367.97 414.6 L 1303.97 414.6 Z M 1382.33 428.96 L 1450.21 361.08 L 1479.97 390.84 L 1479.97 633.16 L 1450.21 662.92 L 1382.33 595.04 L 1383.97 593.4 L 1383.97 430.6 Z M 1303.97 609.4 L 1367.97 609.4 L 1369.6 607.76 L 1437.48 675.65 L 1407.73 705.4 L 1264.2 705.4 L 1234.45 675.65 L 1302.33 607.76 Z M 1221.72 361.08 L 1289.6 428.96 L 1287.97 430.6 L 1287.97 593.4 L 1289.6 595.04 L 1221.72 662.92 L 1191.97 633.16 L 1191.97 390.84 Z" fill="url(#gradLight)" />
+    <path d="M 1305.66 402.6 L 1251.42 348.35 L 1269.17 330.6 L 1402.76 330.6 L 1420.51 348.35 L 1366.27 402.6 Z M 1395.97 432.3 L 1450.21 378.05 L 1467.97 395.81 L 1467.97 628.19 L 1450.21 645.95 L 1395.97 591.7 Z M 1305.66 621.4 L 1366.27 621.4 L 1420.51 675.65 L 1402.76 693.4 L 1269.17 693.4 L 1251.42 675.65 Z M 1221.72 378.05 L 1275.97 432.3 L 1275.97 591.7 L 1221.72 645.95 L 1203.97 628.19 L 1203.97 395.81 Z" fill="url(#gradDark)" />
+
+    <!-- Letter R -->
+    <path d="M 1520.91 318.6 L 1736.67 318.6 L 1766.43 348.35 L 1698.55 416.24 L 1696.91 414.6 L 1616.91 414.6 L 1616.91 482.6 L 1696.91 482.6 L 1698.55 480.96 L 1766.43 548.85 L 1763.02 552.26 L 1808.91 705.4 L 1708.69 705.4 L 1670.69 578.6 L 1616.91 578.6 L 1616.91 705.4 L 1520.91 705.4 Z M 1711.27 428.96 L 1779.16 361.08 L 1808.91 390.84 L 1808.91 506.36 L 1779.16 536.12 L 1711.27 468.24 L 1712.91 466.6 L 1712.91 430.6 Z" fill="url(#gradLight)" />
+    <path d="M 1532.91 330.6 L 1731.7 330.6 L 1749.46 348.35 L 1695.21 402.6 L 1604.91 402.6 L 1604.91 494.6 L 1695.21 494.6 L 1749.47 548.86 L 1792.79 693.4 L 1717.62 693.4 L 1679.62 566.6 L 1604.91 566.6 L 1604.91 693.4 L 1532.91 693.4 Z M 1724.91 432.3 L 1779.16 378.05 L 1796.91 395.81 L 1796.91 501.39 L 1779.16 519.15 L 1724.91 464.9 Z" fill="url(#gradDark)" />
+
+    <!-- Letter G -->
+    <path d="M 1960.22 416.24 L 1892.34 348.35 L 1922.09 318.6 L 2137.86 318.6 L 2137.86 414.6 L 1961.86 414.6 Z M 1879.61 361.08 L 1947.49 428.96 L 1945.86 430.6 L 1945.86 593.4 L 1947.49 595.04 L 1879.61 662.92 L 1849.86 633.16 L 1849.86 390.84 Z M 1961.86 609.4 L 2025.86 609.4 L 2027.49 607.76 L 2095.37 675.65 L 2065.62 705.4 L 1922.09 705.4 L 1892.34 675.65 L 1960.22 607.76 Z M 1985.86 468 L 2137.86 468 L 2137.86 633.16 L 2108.1 662.92 L 2040.22 595.04 L 2041.86 593.4 L 2041.86 564 L 1985.86 564 Z" fill="url(#gradLight)" />
+    <path d="M 1963.55 402.6 L 1909.31 348.35 L 1927.06 330.6 L 2125.86 330.6 L 2125.86 402.6 Z M 1879.61 378.05 L 1933.86 432.3 L 1933.86 591.7 L 1879.61 645.95 L 1861.86 628.19 L 1861.86 395.81 Z M 1963.55 621.4 L 2024.16 621.4 L 2078.4 675.65 L 2060.65 693.4 L 1927.06 693.4 L 1909.31 675.65 Z M 1997.86 480 L 2125.86 480 L 2125.86 628.19 L 2108.1 645.95 L 2053.86 591.7 L 2053.86 552 L 1997.86 552 Z" fill="url(#gradDark)" />
+
+    <!-- Letter E -->
+    <path d="M 2289.16 416.24 L 2221.28 348.35 L 2251.04 318.6 L 2434.8 318.6 L 2434.8 414.6 L 2290.8 414.6 Z M 2208.55 361.08 L 2276.44 428.96 L 2274.8 430.6 L 2274.8 464 L 2406.8 464 L 2406.8 560 L 2274.8 560 L 2274.8 593.4 L 2276.44 595.04 L 2208.55 662.92 L 2178.8 633.16 L 2178.8 390.84 Z M 2290.8 609.4 L 2434.8 609.4 L 2434.8 705.4 L 2251.04 705.4 L 2221.28 675.65 L 2289.16 607.76 Z" fill="url(#gradLight)" />
+    <path d="M 2292.5 402.6 L 2238.25 348.35 L 2256.01 330.6 L 2422.8 330.6 L 2422.8 402.6 Z M 2208.55 378.05 L 2262.8 432.3 L 2262.8 476 L 2394.8 476 L 2394.8 548 L 2262.8 548 L 2262.8 591.7 L 2208.55 645.95 L 2190.8 628.19 L 2190.8 395.81 Z M 2292.5 621.4 L 2422.8 621.4 L 2422.8 693.4 L 2256.01 693.4 L 2238.25 675.65 Z" fill="url(#gradDark)" />
+  </g>
+</svg>
