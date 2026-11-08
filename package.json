@@ -1,6 +1,6 @@
 {
   "name": "@corgelabs/corge",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Corge: High-load serverless AI, durable workflow, payments & auth SDK for GCP Cloud Functions v2",
   "license": "MIT",
   "repository": {
