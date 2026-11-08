@@ -2,19 +2,22 @@ name: Publish @corgelabs/corge to npm
 
 on:
   push:
-    tags:
-      - 'v*.*.*'
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
 
 jobs:
   publish:
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -23,5 +26,30 @@ jobs:
       - run: npm install -g npm@latest
       - run: npm ci
       - run: npm run check
+      - name: Auto-bump version from latest npm release
+        id: bump
+        run: |
+          PUBLISHED=$(npm view @corgelabs/corge version 2>/dev/null || echo "1.0.0")
+          npm version "$PUBLISHED" --no-git-tag-version --allow-same-version
+          COMMIT_MSG=$(git log -1 --pretty=%B)
+          if echo "$COMMIT_MSG" | grep -qE '(BREAKING CHANGE|^[a-z]+(\([^)]+\))?!:)'; then
+            BUMP="major"
+          elif echo "$COMMIT_MSG" | grep -qE '^feat(\([^)]+\))?:'; then
+            BUMP="minor"
+          else
+            BUMP="patch"
+          fi
+          NEW_VER=$(npm version "$BUMP" --no-git-tag-version)
+          echo "version=$NEW_VER" >> "$GITHUB_OUTPUT"
+          echo "Bumped $PUBLISHED -> $NEW_VER ($BUMP)"
       - run: npm run build
       - run: npm publish --access public
+      - name: Commit version & tag back to main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json package-lock.json
+          git commit -m "chore(release): ${{ steps.bump.outputs.version }} [skip ci]"
+          git tag -f "${{ steps.bump.outputs.version }}"
+          git push origin HEAD:main
+          git push -f origin "${{ steps.bump.outputs.version }}"
