@@ -1,0 +1,64 @@
+{
+  "name": "@corgelabs/corge",
+  "version": "1.0.0",
+  "description": "Corge: High-load serverless AI, durable workflow, payments & auth SDK for GCP Cloud Functions v2",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/corgelabs/corge.git"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "corge": "./dist/bin/corge.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./tsconfig.base.json": "./tsconfig.base.json",
+    "./spec": "./docs/SDK_SPEC.md"
+  },
+  "files": [
+    "dist",
+    "src",
+    "infra",
+    "tests",
+    "docs/SDK_SPEC.md",
+    "tsconfig.base.json"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && esbuild src/index.ts --bundle --platform=node --target=node24 --format=esm --packages=external --sourcemap --outfile=dist/index.js && esbuild bin/corge.ts --bundle --platform=node --target=node24 --format=esm --packages=external --banner:js=\"#!/usr/bin/env node\" --outfile=dist/bin/corge.js && chmod +x dist/bin/corge.js",
+    "check": "tsc --noEmit",
+    "test": "node dist/bin/corge.js test",
+    "test:chaos": "node dist/bin/corge.js test:chaos",
+    "prepublishOnly": "npm run check && npm run build"
+  },
+  "dependencies": {
+    "@ai-sdk/google-vertex": "^5.0.121",
+    "@hono/node-server": "^1.19.17",
+    "@mistralai/mistralai": "^2.7.0",
+    "@modelcontextprotocol/server": "^2.3.1",
+    "@typesafe-ai/sdk": "^0.7.0",
+    "ai": "^7.0.150",
+    "esbuild": "^0.25.0",
+    "firebase-admin": "^14.5.0",
+    "firebase-functions": "^7.0.0",
+    "hono": "^4.13.13",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "7.0.2"
+  },
+  "overrides": {
+    "body-parser": "^2.4.0",
+    "uuid": "^11.1.1",
+    "zod": "^4.6.7"
+  }
+}

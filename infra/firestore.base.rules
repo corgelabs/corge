@@ -1,0 +1,152 @@
+rules_version = '2';
+
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// All mutations and schema enforcement happen server-side through the
+// Firebase Functions 2nd Gen backend (firebase-admin/firestore with
+// defineCollection, z.strictObject(), and mandatory FirestoreDataConverter<T>)
+// in me-central1. Direct client SDK writes are denied across all collections.
+//
+// Collection: user/{userId}
+// Document ID: Firebase Auth UID
+// Fields (enforced server-side):
+//   - id: string (required, immutable)
+//   - email: string (required, valid email)
+//   - displayName: string (optional)
+//   - role: string ('user' | 'admin')
+//   - createdAt: timestamp (required, immutable)
+//   - updatedAt: timestamp (required)
+//
+// Collection: chat/{chatId}
+// Document ID: Auto-generated ID (entryId: ^[A-Za-z0-9_-]{1,128}$)
+// Fields (enforced server-side via coreCollections.chat):
+//   - id: string (required, immutable, entryId)
+//   - userId: string (required, immutable, owner UID)
+//   - agentId: string | null (optional, agent identifier)
+//   - title: string | null (optional)
+//   - model: string | null (optional, model identifier)
+//   - messageCount: int (required, defaults to 0, non-negative)
+//   - summary: string | null (optional, rolling conversation summary)
+//   - activeGenerationId: string | null (optional, active stream generation ID)
+//   - deleted: bool (required, defaults to false, soft-delete flag)
+//   - createdAt: timestamp (required, immutable)
+//   - updatedAt: timestamp (required)
+//
+// Subcollection: chat/{chatId}/messages/{messageId}
+// Document ID: Auto-generated ID (entryId: ^[A-Za-z0-9_-]{1,128}$)
+// Fields (enforced server-side):
+//   - id: string (required, immutable, entryId)
+//   - chatId: string (required, immutable, parent chat entryId)
+//   - userId: string (required, immutable, owner UID)
+//   - role: string (required, 'system' | 'user' | 'assistant' | 'tool')
+//   - content: string (required, message text)
+//   - parts: list | null (optional, structured message parts)
+//   - toolInvocations: list | null (optional, tool call/result metadata)
+//   - attachments: list<string> | null (optional, attached fileRef IDs)
+//   - tokenCount: int | null (optional, non-negative)
+//   - cancelled: bool (optional, defaults to false)
+//   - createdAt: timestamp (required, immutable)
+//   - embedding: vector | list<float> | null (optional, 768-dim vector embedding)
+//
+// Collection: file/{fileId}
+// Document ID: Auto-generated ID (fileRef: ^[A-Za-z0-9_-]{1,128}_[a-f0-9]{24}$)
+// Fields (enforced server-side via coreCollections.file):
+//   - id: string (required, immutable, fileRef)
+//   - userId: string (required, immutable, owner UID)
+//   - shaSum: string (required, SHA-256 hex digest)
+//   - fileName: string (required)
+//   - contentType: string (required, MIME type)
+//   - size: int (required, non-negative)
+//   - scan: map | null (optional, fileScan metadata)
+//   - scanError: map | null (optional, fileScanError negative cache metadata)
+//   - deleted: bool (required, defaults to false, soft-delete flag)
+//   - createdAt: timestamp (required, immutable)
+//   - updatedAt: timestamp (required)
+//
+// Server-Only Admin SDK Collections (zero direct client read/write access;
+// denied by the default `match /{document=**} { allow read, write: if false; }` fallback rule):
+//   - email_log/{emailId}: Transactional email delivery & webhook audit log (coreCollections.email_log)
+//   - email_suppression/{emailHash}: Hard-bounce, spam-complaint & manual suppression list (coreCollections.email_suppression)
+//   - user_auth_meta/{userId}: Internal authentication & linked OAuth provider metadata (coreCollections.user_auth_meta)
+//   - auth_tokens/{tokenId}: Hashed verification, password-reset & recovery tokens (coreCollections.auth_tokens)
+//   - payment_customer/{userId}: 1:1 customer billing state, active subscription tier & bonus token balances (coreCollections.payment_customer)
+//   - payment_usage/{usageId}: Per-period AI token & custom metric consumption ledger (coreCollections.payment_usage)
+//   - payment_transaction/{txId}: Immutable payment & webhook event audit ledger (coreCollections.payment_transaction)
+//   - _tasks/{taskId}: Durable task queue state & execution leases
+//   - _idempotency/{key}: Request & webhook idempotency locks
+//   - _system/{docId}: Internal system state, rate limits & circuit-breaker metadata
+//
+// ===============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (request.auth.token.admin == true || request.auth.token.role == 'admin');
+    }
+
+    function isResourceOwner() {
+      return isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    function isNotDeleted() {
+      return resource.data.deleted != true;
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+
+    // User profiles: owners can read their own profile, admins can read any profile.
+    // All writes are server-side only via Firebase Admin SDK.
+    match /user/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if false;
+    }
+
+    // Chats: authenticated users can read non-deleted chats they own.
+    // All writes are server-side only via Firebase Admin SDK.
+    match /chat/{chatId} {
+      allow read: if request.auth != null && resource.data.userId == request.auth.uid && resource.data.deleted != true;
+      allow write: if false;
+    }
+
+    // Chat messages: authenticated users can read messages they own (including collectionGroup('messages') queries).
+    // All writes are server-side only via Firebase Admin SDK.
+    match /chat/{chatId}/messages/{messageId} {
+      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow write: if false;
+    }
+
+    match /{path=**}/messages/{messageId} {
+      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow write: if false;
+    }
+
+    // File metadata: authenticated users can read non-deleted file metadata they own.
+    // All writes are server-side only via Firebase Admin SDK.
+    match /file/{fileId} {
+      allow read: if request.auth != null && resource.data.userId == request.auth.uid && resource.data.deleted != true;
+      allow write: if false;
+    }
+
+    // Default fallback: deny all direct client reads and writes across all other paths.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

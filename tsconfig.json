@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "paths": {
+      "@core": ["./src/index.ts"],
+      "@corgelabs/corge": ["./src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "bin/**/*.ts"]
+}
