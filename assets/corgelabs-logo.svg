@@ -1,32 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2560 1024" width="2560" height="1024">
   <defs>
-    <!-- Deep Obsidian Slate Background -->
-    <radialGradient id="bgGrad" cx="36%" cy="50%" r="72%">
-      <stop offset="0%" stop-color="#111827" />
-      <stop offset="55%" stop-color="#0B0F19" />
-      <stop offset="100%" stop-color="#060911" />
-    </radialGradient>
-
-    <!-- Warm Core Ambient Glow (Behind Corge Emblem) -->
-    <radialGradient id="coreGlow" cx="50%" cy="54%" r="24%">
-      <stop offset="0%" stop-color="#FDE047" stop-opacity="0.36" />
-      <stop offset="48%" stop-color="#F59E0B" stop-opacity="0.14" />
-      <stop offset="100%" stop-color="#F59E0B" stop-opacity="0" />
-    </radialGradient>
-
-    <!-- Subtle Ambient Wordmark Glow -->
-    <radialGradient id="wordmarkGlow" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#F59E0B" stop-opacity="0.14" />
-      <stop offset="65%" stop-color="#D97706" stop-opacity="0.05" />
-      <stop offset="100%" stop-color="#D97706" stop-opacity="0" />
-    </radialGradient>
-
     <!-- Inner Ear Pinna Cavity Gradient -->
-    <linearGradient id="earInnerCavity" x1="18%" y1="5%" x2="85%" y2="95%">
-      <stop offset="0%" stop-color="#0B0F19" stop-opacity="0.96" />
-      <stop offset="38%" stop-color="#451A03" stop-opacity="0.88" />
-      <stop offset="78%" stop-color="#92400E" />
-      <stop offset="100%" stop-color="#D97706" />
+    <linearGradient id="earInnerCavity" x1="18%" y1="10%" x2="85%" y2="95%">
+      <stop offset="0%" stop-color="#78350F" stop-opacity="0" />
+      <stop offset="18%" stop-color="#78350F" stop-opacity="0.15" />
+      <stop offset="55%" stop-color="#92400E" stop-opacity="0.75" />
+      <stop offset="100%" stop-color="#D97706" stop-opacity="1" />
     </linearGradient>
 
     <!-- 1. UNIFIED LIGHT GRADIENT (Top-Lit: Bright Top -> Shadowed Bottom) -->
@@ -53,14 +32,8 @@
     <linearGradient id="gradDarkCheek" href="#gradDark" x1="15%" y1="0%" x2="85%" y2="100%" />
   </defs>
 
-  <!-- 1. Deep Obsidian Slate Background & Ambient Glows -->
-  <rect width="2560" height="1024" fill="url(#bgGrad)" />
-  <ellipse cx="1660" cy="512" rx="820" ry="260" fill="url(#wordmarkGlow)" />
-
-  <!-- 2. CORGE EMBLEM (Left Side: x = 125.20..759.02, y = 125.20..898.80, Height = 773.60px) -->
+  <!-- 1. CORGE EMBLEM (Left Side: x = 125.20..759.02, y = 125.20..898.80, Height = 773.60px) -->
   <g id="corge-emblem" transform="translate(-69.89, 10.8)">
-    <circle cx="512" cy="536" r="270" fill="url(#coreGlow)" />
-
     <g id="ear-left">
       <path d="M 263.8 474.2 C 192 348 176 212 218 132 C 232 106 258 110 284 136 C 342 190 388 262 423 330.4 C 406 336.5 389.5 344 374 353 C 344 294 302 224 256 172 C 242 158 232 158 226 176 C 208 248 228 352 286 437.5 C 278 449.2 270.6 461.5 263.8 474.2 Z" fill="url(#gradLight)" />
       <path d="M 264.0 449.6 C 202.3 331.6 191.3 207.6 228.6 137.6 C 238.4 121.0 249.2 121.5 275.5 144.5 C 329.4 194.6 372.2 259.9 406.2 324.0 C 393.3 329.1 380.6 335.5 368.5 342.3 C 338.9 285.7 299.2 220.9 256.0 172.0 C 242.0 158.0 232.0 158.0 226.0 176.0 C 208.8 245.0 226.4 343.3 278.9 426.6 C 276.3 430.4 268.2 442.2 264.0 449.6 Z" fill="url(#gradDark)" />

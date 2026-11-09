@@ -2,17 +2,17 @@
 
 <img src="https://raw.githubusercontent.com/corgelabs/corge/main/assets/corgelabs-logo.svg" alt="Corge — The All-in-One AI & SaaS Backend" width="680" />
 
-### The All-in-One AI & SaaS Backend Built for Vibecoding.
+### The All-in-One AI & SaaS Backend Built for Agentic Coding.
 
 Stop stitching 10 SDKs together. **Auth, DB, Storage, Payments, Emails, Multimodal AI, Hybrid RAG, and Durable Workflows**—all in one `core` singleton your AI agent masters in one read.
 
 [![npm version](https://img.shields.io/npm/v/@corgelabs/corge?color=f59e0b&label=%40corgelabs%2Fcorge)](https://www.npmjs.com/package/@corgelabs/corge)
-[![Node.js >= 24](https://img.shields.io/badge/node-%3E%3D24-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org)
+[![Node.js 24+](https://img.shields.io/badge/NodeJS-24%2B-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org)
 [![TypeScript Strict](https://img.shields.io/badge/TypeScript-Strict-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
-[![GCP Cloud Functions v2](https://img.shields.io/badge/GCP-Cloud_Functions_v2-4285F4?logo=googlecloud&logoColor=white)](https://cloud.google.com/functions)
+[![GCP Cloud Functions](https://img.shields.io/badge/GCP-Cloud_Functions-4285F4?logo=googlecloud&logoColor=white)](https://cloud.google.com/functions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-f59e0b.svg)](https://opensource.org/licenses/MIT)
 
-[Why Corge?](#-1-package-replaces-10) · [Vibecoder Setup](#-vibecoder-setup-5-seconds) · [30s Quickstart](#-30-second-quickstart) · [CLI](#-built-in-corge-cli) · [Full Spec](./docs/SPEC.md)
+[Why Corge?](#-1-package-replaces-10) · [Agentic Setup](#-agentic-setup-5-seconds) · [30s Quickstart](#-30-second-quickstart) · [CLI](#-built-in-corge-cli) · [Specification](./docs/SPEC.md)
 
 </div>
 
@@ -40,9 +40,9 @@ AI coding agents hallucinate when juggling 10 different SDKs and 10,000 lines of
 
 ---
 
-## 🤖 Vibecoder Setup (5 Seconds)
+## 🤖 Agentic Setup (5 Seconds)
 
-Drop this into your repo's `AGENTS.md`, `CLAUDE.md`, `.cursorrules`, or `.gemini/GEMINI.md` so Cursor, Claude Code, Antigravity, or Windsurf one-shots production features on the first prompt:
+Drop this into your repo's `AGENTS.md`, `CLAUDE.md`, or `.gemini/GEMINI.md` so Codex, Claude Code, Antigravity, or other harness one-shots production features on the first prompt:
 
 ```markdown
 ## Backend Rules (@corgelabs/corge)
@@ -128,4 +128,4 @@ npx corge deploy prod  # Bundle + merge rules/indexes + deploy to GCP Cloud Func
 
 ## 📄 License
 
-MIT © [Corge Labs](https://github.com/corgelabs) · [Full Technical Specification (`docs/SPEC.md`)](./docs/SPEC.md)
+MIT © [Corge Labs](https://github.com/corgelabs)

@@ -1,25 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
   <defs>
-    <!-- Deep Obsidian Slate Background -->
-    <radialGradient id="bgGrad" cx="50%" cy="48%" r="65%">
-      <stop offset="0%" stop-color="#111827" />
-      <stop offset="55%" stop-color="#0B0F19" />
-      <stop offset="100%" stop-color="#060911" />
-    </radialGradient>
-
-    <!-- Warm Core Ambient Glow -->
-    <radialGradient id="coreGlow" cx="50%" cy="54%" r="24%">
-      <stop offset="0%" stop-color="#FDE047" stop-opacity="0.36" />
-      <stop offset="48%" stop-color="#F59E0B" stop-opacity="0.14" />
-      <stop offset="100%" stop-color="#F59E0B" stop-opacity="0" />
-    </radialGradient>
-
-    <!-- Inner Ear Pinna Cavity Gradient (Dark Obsidian Top-Outer to Warm Amber Bottom-Inner) -->
-    <linearGradient id="earInnerCavity" x1="18%" y1="5%" x2="85%" y2="95%">
-      <stop offset="0%" stop-color="#0B0F19" stop-opacity="0.96" />
-      <stop offset="38%" stop-color="#451A03" stop-opacity="0.88" />
-      <stop offset="78%" stop-color="#92400E" />
-      <stop offset="100%" stop-color="#D97706" />
+    <!-- Inner Ear Pinna Cavity Gradient (Transparent Top-Outer to Warm Amber Bottom-Inner) -->
+    <linearGradient id="earInnerCavity" x1="18%" y1="10%" x2="85%" y2="95%">
+      <stop offset="0%" stop-color="#78350F" stop-opacity="0" />
+      <stop offset="18%" stop-color="#78350F" stop-opacity="0.15" />
+      <stop offset="55%" stop-color="#92400E" stop-opacity="0.75" />
+      <stop offset="100%" stop-color="#D97706" stop-opacity="1" />
     </linearGradient>
 
     <!-- 1. UNIFIED LIGHT GRADIENT (Top-Lit: Bright Top -> Shadowed Bottom) -->
@@ -51,14 +37,9 @@
     <linearGradient id="gradDarkCheek" href="#gradDark" x1="15%" y1="0%" x2="85%" y2="100%" />
   </defs>
 
-  <!-- 1. Deep Obsidian Slate Background & Warm Glow -->
-  <rect width="1024" height="1024" fill="url(#bgGrad)" />
-
   <!-- Centered Corge Emblem: x = 195.09..828.91 (195.09px left/right padding), y = 125.20..898.80 (125.20px top/bottom padding) -->
   <g id="corge-emblem" transform="translate(0, 10.8)">
-  <circle cx="512" cy="536" r="270" fill="url(#coreGlow)" />
-
-  <!-- 2. EARS (Exact 12.0px Light Borders & 18.0px Dark Channels on Both Outer Ear Arch & Inner Ear Pinna) -->
+  <!-- 1. EARS (Exact 12.0px Light Borders & 18.0px Channels on Both Outer Ear Arch & Inner Ear Pinna) -->
   <g id="ear-left">
     <!-- Outer Ear Arch (#gradLight 12.0px uniform outer & bottom border) -->
     <path d="M 263.8 474.2 C 192 348 176 212 218 132 C 232 106 258 110 284 136 C 342 190 388 262 423 330.4 C 406 336.5 389.5 344 374 353 C 344 294 302 224 256 172 C 242 158 232 158 226 176 C 208 248 228 352 286 437.5 C 278 449.2 270.6 461.5 263.8 474.2 Z" fill="url(#gradLight)" />
