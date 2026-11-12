@@ -8,7 +8,7 @@ import {
   type PaginatedList,
   type SelectModel
 } from '../db'
-import type { Core } from '../index'
+import type { Corge } from '../index'
 import {
   fileBody,
   fileRef,
@@ -23,40 +23,40 @@ import {
 import { canAccessFile } from './utils'
 
 export class FilesService {
-  readonly #core: Core
+  readonly #corge: Corge
 
-  constructor(coreClient: Core) {
-    this.#core = coreClient
+  constructor(corgeClient: Corge) {
+    this.#corge = corgeClient
   }
 
-  bucket = (isDev: boolean = this.#core.env.isDev): Bucket => this.#core.db.bucket(isDev)
+  bucket = (isDev: boolean = this.#corge.env.isDev): Bucket => this.#corge.db.bucket(isDev)
 
   canAccess = (
     ref: string,
-    userId: EntryId = this.#core.userId,
-    role: DbRole = this.#core.role
+    userId: EntryId = this.#corge.userId,
+    role: DbRole = this.#corge.role
   ): boolean => canAccessFile(userId, ref, role)
 
   #assertAccess = (ref: FileRef): void => {
-    if (!this.canAccess(ref)) this.#core.errors.httpError(403, 'Forbidden: file access denied', 'FORBIDDEN')
+    if (!this.canAccess(ref)) this.#corge.errors.httpError(403, 'Forbidden: file access denied', 'FORBIDDEN')
   }
 
   upload = async (
     file: FileBody,
-    userId: EntryId = this.#core.userId || this.#core.config.auth.adminUserId
+    userId: EntryId = this.#corge.userId || this.#corge.config.auth.adminUserId
   ): Promise<{ ref: FileRef }> => {
     entryId.parse(userId)
     fileBody.parse(file)
     const shaSum = createHash('sha256').update(file.bytes).digest('hex').slice(0, 24)
     const ref = fileRef.parse(`${userId}_${shaSum}`)
-    const existing = await this.#core.db.read('file', ref, true, { bypassRbac: true })
-    const step = this.#core.step
+    const existing = await this.#corge.db.read('file', ref, true, { bypassRbac: true })
+    const step = this.#corge.step
 
     if (!existing) {
       await step(
         'upload-storage',
         async () => {
-          await this.#core.internals.resilience.acquireLimit('storage')
+          await this.#corge.internals.resilience.acquireLimit('storage')
           await this.bucket().file(ref).save(Buffer.from(file.bytes), {
             resumable: false,
             contentType: file.type,
@@ -68,7 +68,7 @@ export class FilesService {
         },
         {
           rollback: async () => {
-            await this.#core.internals.resilience.acquireLimit('storage')
+            await this.#corge.internals.resilience.acquireLimit('storage')
             await this.bucket().file(ref).delete({ ignoreNotFound: true })
           }
         }
@@ -79,7 +79,7 @@ export class FilesService {
       'upload-meta',
       async () => {
         if (!existing) {
-          await this.#core.db.create(
+          await this.#corge.db.create(
             'file',
             {
               id: ref,
@@ -95,14 +95,14 @@ export class FilesService {
             { bypassRbac: true }
           )
         } else if (existing.deleted) {
-          await this.#core.db.update('file', ref, { deleted: false, fileName: file.name }, { bypassRbac: true })
+          await this.#corge.db.update('file', ref, { deleted: false, fileName: file.name }, { bypassRbac: true })
         }
       },
       {
         rollback: async () => {
-          if (!existing) await this.#core.db.hardDelete('file', ref, { bypassRbac: true }).catch(() => {})
+          if (!existing) await this.#corge.db.hardDelete('file', ref, { bypassRbac: true }).catch(() => {})
           else if (existing.deleted) {
-            await this.#core.db.update('file', ref, { deleted: true }, { bypassRbac: true }).catch(() => {})
+            await this.#corge.db.update('file', ref, { deleted: true }, { bypassRbac: true }).catch(() => {})
           }
         }
       }
@@ -117,7 +117,7 @@ export class FilesService {
     expiresMs: number,
     contentType?: FileType
   ): Promise<string> => {
-    await this.#core.internals.resilience.acquireLimit('storage')
+    await this.#corge.internals.resilience.acquireLimit('storage')
     const bucket = this.bucket()
     try {
       const [signed] = await bucket.file(ref).getSignedUrl({
@@ -128,8 +128,8 @@ export class FilesService {
       })
       return signed
     } catch (err) {
-      if (!this.#core.env.isDev && Boolean(process.env.K_SERVICE)) {
-        return this.#core.errors.httpError(502, 'Failed to generate signed file URL', 'GCS_SIGN_FAILED')
+      if (!this.#corge.env.isDev && Boolean(process.env.K_SERVICE)) {
+        return this.#corge.errors.httpError(502, 'Failed to generate signed file URL', 'GCS_SIGN_FAILED')
       }
       const query = action === 'write' ? `uploadType=media&expires=${expiresMs}` : `alt=media&expires=${expiresMs}`
       return `https://storage.googleapis.com/${bucket.name}/${encodeURIComponent(ref)}?${query}`
@@ -138,14 +138,14 @@ export class FilesService {
 
   getSignedUploadUrl = async (
     rawInput: SignedUploadInput,
-    userId: EntryId = this.#core.userId || this.#core.config.auth.adminUserId,
+    userId: EntryId = this.#corge.userId || this.#corge.config.auth.adminUserId,
     expiresInMs = 15 * 60_000
   ): Promise<SignedUploadUrlResult> => {
     entryId.parse(userId)
     const input = signedUploadInput.parse(rawInput)
     const shaSum = input.sha256.toLowerCase().slice(0, 24)
     const ref = fileRef.parse(`${userId}_${shaSum}`)
-    const existing = await this.#core.db.read('file', ref, true, { bypassRbac: true })
+    const existing = await this.#corge.db.read('file', ref, true, { bypassRbac: true })
     const expiresMs = Date.now() + Math.max(60_000, expiresInMs)
     const expiresAt = new Date(expiresMs).toISOString()
 
@@ -160,8 +160,8 @@ export class FilesService {
   getSignedDownloadUrl = async (ref: FileRef, expiresInMs = 15 * 60_000): Promise<SignedDownloadUrlResult> => {
     fileRef.parse(ref)
     this.#assertAccess(ref)
-    const doc = await this.#core.db.read('file', ref, false, { bypassRbac: true })
-    if (!doc) this.#core.errors.httpError(404, `File not found: ${ref}`, 'NOT_FOUND')
+    const doc = await this.#corge.db.read('file', ref, false, { bypassRbac: true })
+    if (!doc) this.#corge.errors.httpError(404, `File not found: ${ref}`, 'NOT_FOUND')
 
     const expiresMs = Date.now() + Math.max(60_000, expiresInMs)
     const expiresAt = new Date(expiresMs).toISOString()
@@ -170,7 +170,7 @@ export class FilesService {
   }
 
   download = async (ref: FileRef): Promise<Buffer> => {
-    await this.#core.internals.resilience.acquireLimit('storage')
+    await this.#corge.internals.resilience.acquireLimit('storage')
     try {
       return (await this.bucket().file(ref).download())[0]
     } catch {
@@ -183,7 +183,7 @@ export class FilesService {
     this.#assertAccess(ref)
     const [bytes, doc] = await Promise.all([
       this.download(ref),
-      this.#core.db.read('file', ref, false, { bypassRbac: true })
+      this.#corge.db.read('file', ref, false, { bypassRbac: true })
     ])
     if (!doc) throw new Error(`File not found: ${ref}`)
     return fileBody.parse({
@@ -194,33 +194,33 @@ export class FilesService {
   }
 
   list = async (options?: DbListOptions<SelectModel<'file'>>): Promise<PaginatedList<SelectModel<'file'>>> =>
-    this.#core.db.list('file', {
-      ...(this.#core.userId && this.#core.role !== 'admin' ? { userId: this.#core.userId } : {}),
+    this.#corge.db.list('file', {
+      ...(this.#corge.userId && this.#corge.role !== 'admin' ? { userId: this.#corge.userId } : {}),
       ...options
     })
 
   delete = async (ref: FileRef): Promise<{ ref: FileRef; deleted: true }> => {
     fileRef.parse(ref)
     this.#assertAccess(ref)
-    await this.#core.db.delete('file', ref, { bypassRbac: true })
+    await this.#corge.db.delete('file', ref, { bypassRbac: true })
     return { ref, deleted: true }
   }
 
   hardDelete = async (ref: FileRef): Promise<{ ref: FileRef }> => {
     fileRef.parse(ref)
     this.#assertAccess(ref)
-    const step = this.#core.step
+    const step = this.#corge.step
     await step(
       'hard-delete-file',
       async () => {
-        const prev = await this.#core.db.read('file', ref, true, { bypassRbac: true })
-        await this.#core.db.hardDelete('file', ref, { bypassRbac: true })
+        const prev = await this.#corge.db.read('file', ref, true, { bypassRbac: true })
+        await this.#corge.db.hardDelete('file', ref, { bypassRbac: true })
         return prev ?? null
       },
       {
         rollback: async (prev) => {
           if (!prev) return
-          await this.#core.db
+          await this.#corge.db
             .firestore()
             .collection('file')
             .doc(ref)

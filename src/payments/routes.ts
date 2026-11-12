@@ -1,6 +1,6 @@
 import type { Context } from 'hono'
 import type { AppEnv } from '../config'
-import type { Core } from '../index'
+import type { Corge } from '../index'
 import {
   cancelSubscriptionInput,
   changeTierInput,
@@ -30,53 +30,53 @@ export const corePaymentRoutes = {
   'payments.checkout': {
     input: createCheckoutInput,
     output: checkoutSessionResultSchema,
-    handler: async ({ core, input }: { core: Core; input: CreateCheckoutInput }) => core.payments.createCheckout(input)
+    handler: async ({ corge, input }: { corge: Corge; input: CreateCheckoutInput }) => corge.payments.createCheckout(input)
   },
   'payments.paymentLink': {
     input: createPaymentLinkInput,
     output: paymentLinkResultSchema,
-    handler: async ({ core, input }: { core: Core; input: CreatePaymentLinkInput }) => core.payments.createPaymentLink(input)
+    handler: async ({ corge, input }: { corge: Corge; input: CreatePaymentLinkInput }) => corge.payments.createPaymentLink(input)
   },
   'payments.invoice': {
     input: createInvoiceInput,
     output: invoiceResultSchema,
-    handler: async ({ core, input }: { core: Core; input: CreateInvoiceInput }) => core.payments.createInvoice(input)
+    handler: async ({ corge, input }: { corge: Corge; input: CreateInvoiceInput }) => corge.payments.createInvoice(input)
   },
   'payments.charge': {
     input: directChargeInput,
     output: chargeResultSchema,
-    handler: async ({ core, input }: { core: Core; input: DirectChargeInput }) => core.payments.charge(input)
+    handler: async ({ corge, input }: { corge: Corge; input: DirectChargeInput }) => corge.payments.charge(input)
   },
   'payments.subscribe': {
     input: subscribeInput,
     output: subscribeResultSchema,
-    handler: async ({ core, input }: { core: Core; input: SubscribeInput }) => core.payments.subscribe(input)
+    handler: async ({ corge, input }: { corge: Corge; input: SubscribeInput }) => corge.payments.subscribe(input)
   },
   'payments.changeTier': {
     input: changeTierInput,
     output: subscriptionRecordSchema,
-    handler: async ({ core, input }: { core: Core; input: ChangeTierInput }) => core.payments.changeSubscriptionTier(input)
+    handler: async ({ corge, input }: { corge: Corge; input: ChangeTierInput }) => corge.payments.changeSubscriptionTier(input)
   },
   'payments.cancelSubscription': {
     input: cancelSubscriptionInput,
     output: subscriptionRecordSchema,
-    handler: async ({ core, input }: { core: Core; input: CancelSubscriptionInput }) => core.payments.cancelSubscription(input)
+    handler: async ({ corge, input }: { corge: Corge; input: CancelSubscriptionInput }) => corge.payments.cancelSubscription(input)
   },
   'payments.status': {
-    handler: async ({ core }: { core: Core }) => ({
-      subscription: await core.payments.getSubscription(),
-      usage: await core.payments.getUsage()
+    handler: async ({ corge }: { corge: Corge }) => ({
+      subscription: await corge.payments.getSubscription(),
+      usage: await corge.payments.getUsage()
     })
   },
   'payments.webhook': {
     params: paymentWebhookParamsSchema,
     handler: async ({
-      core,
+      corge,
       c,
       params,
       rawBody
     }: {
-      core: Core
+      corge: Corge
       c: Context<AppEnv>
       params: PaymentWebhookParams
       rawBody?: string
@@ -86,7 +86,7 @@ export const corePaymentRoutes = {
         headers[key.toLowerCase()] = value
       })
       const body = rawBody ?? (c ? await c.req.text() : '')
-      return core.internals.payments.verifyAndProcessWebhook(params.provider, body, headers)
+      return corge.internals.payments.verifyAndProcessWebhook(params.provider, body, headers)
     }
   }
 }

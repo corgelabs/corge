@@ -1,6 +1,6 @@
 import { Timestamp, type DocumentReference, type Firestore } from 'firebase-admin/firestore'
 import { z } from 'zod'
-import { CORE_CONFIG, type DbRole } from '../config'
+import { CORGE_CONFIG, type DbRole } from '../config'
 import type { EntryId } from '../db'
 import type { RouteMode } from '../router'
 import type { Duration } from '../utils'
@@ -62,13 +62,13 @@ export const zodToJsonSchemaSafe = (schema?: z.ZodType<any>): Record<string, unk
 export const resolveTaskDeadline = (workflowName: string, deadlineSeconds?: number): number =>
   deadlineSeconds ??
   (workflowName === 'scan-attachment'
-    ? CORE_CONFIG.tasks.scanDeadlineSeconds
-    : CORE_CONFIG.tasks.defaultDeadlineSeconds)
+    ? CORGE_CONFIG.tasks.scanDeadlineSeconds
+    : CORGE_CONFIG.tasks.defaultDeadlineSeconds)
 
-export const getQueueLoc = (): string => `projects/${CORE_CONFIG.gcpProject}/locations/${CORE_CONFIG.region}`
+export const getQueueLoc = (): string => `projects/${CORGE_CONFIG.gcpProject}/locations/${CORGE_CONFIG.region}`
 
 export const getQueueBase = (isDev = false): string =>
-  `${getQueueLoc()}/queues/${isDev ? CORE_CONFIG.queueBaseNames.dev : CORE_CONFIG.queueBaseNames.prod}`
+  `${getQueueLoc()}/queues/${isDev ? CORGE_CONFIG.queueBaseNames.dev : CORGE_CONFIG.queueBaseNames.prod}`
 
 export const getQueueParent = (idx: number, isDev = false): string => {
   const base = getQueueBase(isDev)
@@ -76,7 +76,7 @@ export const getQueueParent = (idx: number, isDev = false): string => {
 }
 
 export const getWorkerUri = (isDev = false): string =>
-  isDev ? CORE_CONFIG.workerUris.dev : CORE_CONFIG.workerUris.prod
+  isDev ? CORGE_CONFIG.workerUris.dev : CORGE_CONFIG.workerUris.prod
 
 export const isTerminalRecord = (d: TaskRecord<unknown> | undefined): d is TaskRecord<unknown> =>
   Boolean(d && (d.status === 'completed' || d.status === 'errored' || d.status === 'cancelled'))
@@ -240,9 +240,9 @@ export const claimTaskEpochTx = (
     const claimedEpoch = currentEpoch + 1
     const activeRunId = crypto.randomUUID()
     const startedAt = Date.now()
-    const expiresAt = Timestamp.fromMillis(startedAt + CORE_CONFIG.tasks.ttlMs)
+    const expiresAt = Timestamp.fromMillis(startedAt + CORGE_CONFIG.tasks.ttlMs)
     const effectiveParams = (data?.params as Record<string, unknown> | undefined) ?? payload.params
-    const userId: EntryId = typeof data?.userId === 'string' ? data.userId : CORE_CONFIG.auth.adminUserId
+    const userId: EntryId = typeof data?.userId === 'string' ? data.userId : CORGE_CONFIG.auth.adminUserId
     const userRole = resolveRole(userId, data?.userRole as DbRole | undefined)
     const steps: Record<string, unknown> = { ...((data?.steps as Record<string, unknown> | undefined) ?? {}) }
     const signals: Record<string, unknown> = { ...((data?.signals as Record<string, unknown> | undefined) ?? {}) }
@@ -307,7 +307,7 @@ export const startTaskHeartbeatTimer = (
         tx.set(docRef, { lastHeartbeatAt: Date.now(), updatedAt: new Date().toISOString(), expiresAt }, { merge: true })
       })
       .catch(() => {})
-  }, CORE_CONFIG.tasks.heartbeatIntervalMs)
+  }, CORGE_CONFIG.tasks.heartbeatIntervalMs)
   timer.unref?.()
   return timer
 }

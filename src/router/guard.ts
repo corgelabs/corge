@@ -2,15 +2,15 @@ import { createHash, timingSafeEqual } from 'node:crypto'
 import { Timestamp } from 'firebase-admin/firestore'
 import type { Context } from 'hono'
 import { getCookie } from 'hono/cookie'
-import { CORE_CONFIG, type AppEnv, type DbRole, type RateLimitConfig } from '../config'
+import { CORGE_CONFIG, type AppEnv, type DbRole, type RateLimitConfig } from '../config'
 import type { EntryId } from '../db'
-import type { Core } from '../index'
+import type { Corge } from '../index'
 import {
-  CORE_ROUTE_DEFAULTS,
+  CORGE_ROUTE_DEFAULTS,
   type AuthLevel,
   type BaseRouteConfig,
-  type CoreRouteId,
-  type CoreRouteOverrides,
+  type CorgeRouteId,
+  type CorgeRouteOverrides,
   type RouteConfig
 } from './schema'
 
@@ -44,10 +44,10 @@ export const isRespondAsyncPreferred = (c: Context<AppEnv>): boolean =>
   /\brespond-async\b/i.test(c.req.header('prefer') ?? '')
 
 export class RouterGuardEngine {
-  readonly #core: Core
+  readonly #corge: Corge
 
-  constructor(coreClient: Core) {
-    this.#core = coreClient
+  constructor(corgeClient: Corge) {
+    this.#corge = corgeClient
   }
 
   applyRateLimit = (
@@ -59,8 +59,8 @@ export class RouterGuardEngine {
       ? cfgOrLimit.rateLimit !== undefined
         ? cfgOrLimit.rateLimit
         : cfgOrLimit.auth === 'public' || cfgOrLimit.auth === 'none' || cfgOrLimit.auth === false
-          ? CORE_CONFIG.limits.httpIp
-          : CORE_CONFIG.limits.httpUser
+          ? CORGE_CONFIG.limits.httpIp
+          : CORGE_CONFIG.limits.httpUser
       : cfgOrLimit
     if (!rl) return
     const userId = c.get('userId') || userIdOrScope
@@ -71,7 +71,7 @@ export class RouterGuardEngine {
         : rl.keyBy === 'ip' || !userId
           ? `${routePrefix}ip:${getClientIp(c)}`
           : `${routePrefix}user:${userId}`
-    this.#core.internals.resilience.acquireHttpLimit(key, rl.max, rl.windowMs)
+    this.#corge.internals.resilience.acquireHttpLimit(key, rl.max, rl.windowMs)
   }
 
   authenticateRequest = async (
@@ -97,8 +97,8 @@ export class RouterGuardEngine {
 
     const t0 = performance.now()
     const finishAuth = (uid: EntryId, role: DbRole): EntryId => {
-      if (authLevel === 'admin' && role !== 'admin' && uid !== CORE_CONFIG.auth.adminUserId) {
-        return this.#core.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
+      if (authLevel === 'admin' && role !== 'admin' && uid !== CORGE_CONFIG.auth.adminUserId) {
+        return this.#corge.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
       }
       c.set('userId', uid)
       c.set('userRole', role)
@@ -110,27 +110,27 @@ export class RouterGuardEngine {
     }
 
     const bearer = c.req.header('authorization')?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim()
-    const cookie = !bearer ? getCookie(c, CORE_CONFIG.auth.sessionCookie) : undefined
-    if (!bearer && !cookie) return this.#core.errors.httpError(401, 'Unauthorized', 'UNAUTHORIZED')
-    const expectedKey = c.env?.SDK_API_KEY ?? this.#core.env.SDK_API_KEY
+    const cookie = !bearer ? getCookie(c, CORGE_CONFIG.auth.sessionCookie) : undefined
+    if (!bearer && !cookie) return this.#corge.errors.httpError(401, 'Unauthorized', 'UNAUTHORIZED')
+    const expectedKey = c.env?.SDK_API_KEY ?? this.#corge.env.SDK_API_KEY
     if (isMasterKey(bearer, expectedKey)) {
-      await this.#core.internals.auth.authWarm
-      return finishAuth(CORE_CONFIG.auth.adminUserId, 'admin')
+      await this.#corge.internals.auth.authWarm
+      return finishAuth(CORGE_CONFIG.auth.adminUserId, 'admin')
     }
     if (rawAuth === 'api-key') {
-      return this.#core.errors.httpError(401, 'Valid API key required', 'UNAUTHORIZED')
+      return this.#corge.errors.httpError(401, 'Valid API key required', 'UNAUTHORIZED')
     }
 
     let verified: { uid: EntryId; role: DbRole }
     try {
-      verified = await this.#core.internals.auth.verifyToken(
+      verified = await this.#corge.internals.auth.verifyToken(
         (bearer ?? cookie)!,
         !bearer,
         authLevel === 'strict',
-        c.env?.isDev ?? this.#core.env.isDev
+        c.env?.isDev ?? this.#corge.env.isDev
       )
     } catch {
-      return this.#core.errors.httpError(401, 'Unauthorized', 'UNAUTHORIZED')
+      return this.#corge.errors.httpError(401, 'Unauthorized', 'UNAUTHORIZED')
     }
     return finishAuth(verified.uid, verified.role)
   }
@@ -165,8 +165,8 @@ export class RouterGuardEngine {
           : [])
       ]
     }
-    if (refs.some((r) => !this.#core.files.canAccess(r, userId, role))) {
-      this.#core.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
+    if (refs.some((r) => !this.#corge.files.canAccess(r, userId, role))) {
+      this.#corge.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
     }
   }
 
@@ -175,7 +175,7 @@ export class RouterGuardEngine {
     cfg: BaseRouteConfig,
     userId: EntryId,
     input: unknown,
-    role: DbRole = this.#core.internals.auth.resolveUserRole(userId)
+    role: DbRole = this.#corge.internals.auth.resolveUserRole(userId)
   ): Promise<void> => {
     const g = cfg.guard
     if (!g || !userId) return
@@ -186,16 +186,16 @@ export class RouterGuardEngine {
     if (g.checkCollectionField) {
       const { collection, param } = g.checkCollectionField
       const docId = c?.req.param(param) ?? (typeof obj[param] === 'string' ? (obj[param] as string) : '')
-      const doc = await this.#core.db.read(collection, docId, false, { bypassRbac: true })
+      const doc = await this.#corge.db.read(collection, docId, false, { bypassRbac: true })
       if (!doc) {
-        return this.#core.errors.httpError(
+        return this.#corge.errors.httpError(
           404,
           `${collection === 'chat' ? 'Chat' : 'Document'} not found`,
           'NOT_FOUND'
         )
       }
-      if (!(await this.#core.db.canAccess(collection, doc, userId, 'read', role))) {
-        return this.#core.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
+      if (!(await this.#corge.db.canAccess(collection, doc, userId, 'read', role))) {
+        return this.#corge.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
       }
     }
 
@@ -206,24 +206,24 @@ export class RouterGuardEngine {
           : typeof obj.userId === 'string'
             ? obj.userId
             : undefined
-      if (targetUserId && role !== 'admin' && userId !== CORE_CONFIG.auth.adminUserId && targetUserId !== userId) {
-        this.#core.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
+      if (targetUserId && role !== 'admin' && userId !== CORGE_CONFIG.auth.adminUserId && targetUserId !== userId) {
+        this.#corge.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
       }
-      if (obj.backupBeforeErase && role !== 'admin' && userId !== CORE_CONFIG.auth.adminUserId) {
-        this.#core.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
+      if (obj.backupBeforeErase && role !== 'admin' && userId !== CORGE_CONFIG.auth.adminUserId) {
+        this.#corge.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
       }
     }
 
-    if (g.requireEmailVerified && role !== 'admin' && userId !== CORE_CONFIG.auth.adminUserId) {
-      const authUser = await this.#core.auth.getUser(userId)
+    if (g.requireEmailVerified && role !== 'admin' && userId !== CORGE_CONFIG.auth.adminUserId) {
+      const authUser = await this.#corge.auth.getUser(userId)
       if (!authUser?.emailVerified) {
-        this.#core.errors.httpError(403, 'Email verification required', 'EMAIL_NOT_VERIFIED')
+        this.#corge.errors.httpError(403, 'Email verification required', 'EMAIL_NOT_VERIFIED')
       }
     }
 
     if (g.custom) {
-      const ok = await g.custom({ userId, role, input, env: this.#core.env, ...(c ? { c } : {}) })
-      if (ok === false) this.#core.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
+      const ok = await g.custom({ userId, role, input, env: this.#corge.env, ...(c ? { c } : {}) })
+      if (ok === false) this.#corge.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
     }
   }
 
@@ -238,10 +238,10 @@ export class RouterGuardEngine {
       .update(`${routeKey}:${userId}:${dedupeKey}`)
       .digest('hex')
       .slice(0, 40)
-    return this.#core.internals.resilience.singleflight(
+    return this.#corge.internals.resilience.singleflight(
       `http_idem:${isDev ? 'dev' : 'prod'}:${keyHash}`,
       async () => {
-        const docRef = this.#core.db.firestore(isDev).collection('_idempotency').doc(keyHash)
+        const docRef = this.#corge.db.firestore(isDev).collection('_idempotency').doc(keyHash)
         const snap = await docRef.get().catch(() => null)
         const data = snap?.exists ? (snap.data() as Record<string, unknown> | undefined) : undefined
         const now = Date.now()
@@ -277,16 +277,16 @@ export class RouterGuardEngine {
 }
 
 export const mergeCoreAndDomainRoutes = (
-  rawCoreRoutes: Record<CoreRouteId, Partial<RouteConfig>>,
-  overrides: CoreRouteOverrides,
+  rawCoreRoutes: Record<CorgeRouteId, Partial<RouteConfig>>,
+  overrides: CorgeRouteOverrides,
   attachmentTypesDesc: string,
   domainRouteDefs: Record<string, RouteConfig<any, any, any, any>>
 ): Record<string, RouteConfig> => {
   const coreRoutes = Object.fromEntries(
-    (Object.keys(CORE_ROUTE_DEFAULTS) as CoreRouteId[]).map((id) => {
+    (Object.keys(CORGE_ROUTE_DEFAULTS) as CorgeRouteId[]).map((id) => {
       const merged = {
         mcp: false,
-        ...CORE_ROUTE_DEFAULTS[id],
+        ...CORGE_ROUTE_DEFAULTS[id],
         ...rawCoreRoutes[id],
         ...(id === 'attachments.scan' && attachmentTypesDesc
           ? {
@@ -298,7 +298,7 @@ export const mergeCoreAndDomainRoutes = (
       merged.mcp = merged.mcp === true
       return [id, merged]
     })
-  ) as Record<CoreRouteId, RouteConfig>
+  ) as Record<CorgeRouteId, RouteConfig>
 
   const domainRoutes: Record<string, RouteConfig> = {}
   for (const [name, routeCfg] of Object.entries(domainRouteDefs)) {

@@ -21,7 +21,7 @@ import {
   streamChatBody
 } from './chat'
 import {
-  CORE_CONFIG,
+  CORGE_CONFIG,
   defineConfig,
   type AppBindings,
   type DbRole
@@ -64,24 +64,24 @@ import {
   subscribeInput, subscribeResultSchema, subscriptionRecordSchema, usageStatusResultSchema, usageSummarySchema
 } from './payments'
 import {
-  CORE_ROUTE_DEFAULTS, RouterService, defineRoute, defineRouteOverrides, defineRoutes, type CoreAppInit
+  CORGE_ROUTE_DEFAULTS, RouterService, defineRoute, defineRouteOverrides, defineRoutes, type CorgeAppInit
 } from './router'
 import { TasksService, type StepRunner } from './tasks'
 import { ErrorsService, ResilienceService, errorBodySchema } from './utils'
 
-export interface CoreRuntimeState {
+export interface CorgeRuntimeState {
   env: AppBindings
   userId: EntryId
   role: DbRole
   step?: StepRunner
 }
 
-const coreStorage = new AsyncLocalStorage<CoreRuntimeState>()
+const corgeStorage = new AsyncLocalStorage<CorgeRuntimeState>()
 
-const runWithCore = <T>(state: CoreRuntimeState, fn: () => Promise<T>): Promise<T> =>
-  coreStorage.run(state, fn)
+const runWithCorge = <T>(state: CorgeRuntimeState, fn: () => Promise<T>): Promise<T> =>
+  corgeStorage.run(state, fn)
 
-const getActiveCoreState = (): CoreRuntimeState | undefined => coreStorage.getStore()
+const getActiveCorgeState = (): CorgeRuntimeState | undefined => corgeStorage.getStore()
 
 const buildDefaultEnvBindings = (isDev = false): AppBindings => ({
   SDK_API_KEY: process.env.SDK_API_KEY ?? '',
@@ -104,8 +104,8 @@ const buildDefaultEnvBindings = (isDev = false): AppBindings => ({
   isDev
 })
 
-export class Core {
-  readonly #explicitState?: CoreRuntimeState
+export class Corge {
+  readonly #explicitState?: CorgeRuntimeState
   readonly #resilience: ResilienceService
   readonly #router: RouterService
   readonly #db: DbService
@@ -127,7 +127,7 @@ export class Core {
   readonly emails: Omit<EmailsService, 'internals'>
   readonly payments: Omit<PaymentsService, 'internals'>
 
-  constructor(state?: CoreRuntimeState) {
+  constructor(state?: CorgeRuntimeState) {
     this.#explicitState = state
     this.errors = new ErrorsService()
     this.#resilience = new ResilienceService(this)
@@ -150,9 +150,9 @@ export class Core {
     this.#router = new RouterService(this)
   }
 
-  get #state(): CoreRuntimeState {
+  get #state(): CorgeRuntimeState {
     if (this.#explicitState) return this.#explicitState
-    const active = coreStorage.getStore()
+    const active = corgeStorage.getStore()
     if (active) return active
     const wfStore = this.#tasks.internals.getActiveWorkflowStore()
     const isDevDefault =
@@ -162,7 +162,7 @@ export class Core {
       process.env.NODE_ENV === 'test'
     return {
       env: wfStore?.env ?? buildDefaultEnvBindings(isDevDefault),
-      userId: CORE_CONFIG.auth.adminUserId,
+      userId: CORGE_CONFIG.auth.adminUserId,
       role: 'admin',
       ...(wfStore?.step ? { step: wfStore.step } : {})
     }
@@ -184,8 +184,8 @@ export class Core {
     return this.#state.step ?? this.#tasks.internals.useStep()
   }
 
-  readonly config = CORE_CONFIG
-  readonly createApp = (opts?: CoreAppInit) => this.#router.createApp(opts)
+  readonly config = CORGE_CONFIG
+  readonly createApp = (opts?: CorgeAppInit) => this.#router.createApp(opts)
 
   readonly define = {
     config: defineConfig,
@@ -252,9 +252,9 @@ export class Core {
     return {
       resilience: this.#resilience,
       context: {
-        run: runWithCore,
-        getState: getActiveCoreState,
-        routeDefaults: CORE_ROUTE_DEFAULTS,
+        run: runWithCorge,
+        getState: getActiveCorgeState,
+        routeDefaults: CORGE_ROUTE_DEFAULTS,
         getMcpTools: this.#chat.internals.getMcpTools,
         authenticateRequest: this.#router.authenticateRequest,
         applyRateLimit: this.#router.applyRateLimit,
@@ -299,19 +299,19 @@ export class Core {
   }
 }
 
-export type CoreInternals = Core['internals']
+export type CorgeInternals = Corge['internals']
 
-export const core = new Core()
+export const corge = new Corge()
 
-export namespace core {
+export namespace corge {
   export namespace types {
     export type AppBindings = import('./config').AppBindings
     export type DbAction = import('./config').DbAction
     export type DbRole = import('./config').DbRole
-    export type CoreAppInit = import('./router').CoreAppInit
-    export type CoreInternals = import('./index').CoreInternals
-    export type CoreRuntimeState = import('./index').CoreRuntimeState
-    export type CoreRouteOverrides = import('./router').CoreRouteOverrides
+    export type CorgeAppInit = import('./router').CorgeAppInit
+    export type CorgeInternals = import('./index').CorgeInternals
+    export type CorgeRuntimeState = import('./index').CorgeRuntimeState
+    export type CorgeRouteOverrides = import('./router').CorgeRouteOverrides
     export type RouteConfig<I = any, O = any, P = Record<string, string>, Q = Record<string, string>> =
       import('./router').RouteConfig<I, O, P, Q>
     export type RouteExecutionContext<I = unknown, P = Record<string, string>, Q = Record<string, string>> =
@@ -416,10 +416,10 @@ export namespace core {
   }
 }
 
-export const useCore = (): Core => {
-  const active = coreStorage.getStore()
-  return active ? new Core(active) : core
+export const useCorge = (): Corge => {
+  const active = corgeStorage.getStore()
+  return active ? new Corge(active) : corge
 }
 
-export { CORE_CONFIG }
+export { CORGE_CONFIG }
 export { getSecrets, loadGcpSecrets } from './cli/env'

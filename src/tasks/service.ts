@@ -1,6 +1,6 @@
 import { Timestamp, type DocumentReference } from 'firebase-admin/firestore'
-import { CORE_CONFIG } from '../config'
-import type { Core } from '../index'
+import { CORGE_CONFIG } from '../config'
+import type { Corge } from '../index'
 import {
   StaleWorkerEpochError,
   type StepRunner,
@@ -14,16 +14,16 @@ import { TaskWatcherEngine } from './watcher'
 import { TaskWorkerEngine } from './worker'
 
 export class TasksService {
-  readonly #core: Core
+  readonly #corge: Corge
   readonly #worker: TaskWorkerEngine
   readonly #steps: TaskStepsEngine
   readonly #watcher: TaskWatcherEngine
 
-  constructor(coreClient: Core) {
-    this.#core = coreClient
-    this.#worker = new TaskWorkerEngine(coreClient)
-    this.#steps = new TaskStepsEngine(coreClient, this.#worker.invokeChildWorkflow)
-    this.#watcher = new TaskWatcherEngine(coreClient, this.#steps)
+  constructor(corgeClient: Corge) {
+    this.#corge = corgeClient
+    this.#worker = new TaskWorkerEngine(corgeClient)
+    this.#steps = new TaskStepsEngine(corgeClient, this.#worker.invokeChildWorkflow)
+    this.#watcher = new TaskWatcherEngine(corgeClient, this.#steps)
     this.#worker.bindEngines(this.#steps, this.#watcher)
   }
 
@@ -33,17 +33,17 @@ export class TasksService {
   }
 
   #assertTaskOwnership = (data: Record<string, unknown> | undefined): void => {
-    if (!data) throw this.#core.errors.httpError(404, 'Task not found', 'NOT_FOUND')
-    const caller = this.#core.caller
-    if (!caller || caller.role === 'admin' || caller.userId === CORE_CONFIG.auth.adminUserId) return
+    if (!data) throw this.#corge.errors.httpError(404, 'Task not found', 'NOT_FOUND')
+    const caller = this.#corge.caller
+    if (!caller || caller.role === 'admin' || caller.userId === CORGE_CONFIG.auth.adminUserId) return
     if (typeof data.userId === 'string' && data.userId !== caller.userId) {
-      throw this.#core.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
+      throw this.#corge.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
     }
   }
 
   status = async <O = unknown>(taskId: string): Promise<TaskStatusRecord<O>> => {
-    const isDev = Boolean(this.#core.env.isDev)
-    const snap = await this.#core.db.firestore(isDev).collection('_tasks').doc(taskId).get()
+    const isDev = Boolean(this.#corge.env.isDev)
+    const snap = await this.#corge.db.firestore(isDev).collection('_tasks').doc(taskId).get()
     const data = snap.exists ? (snap.data() as Record<string, unknown>) : undefined
     this.#assertTaskOwnership(data)
     const response =
@@ -72,8 +72,8 @@ export class TasksService {
     signalName: string,
     payload?: unknown
   ): Promise<{ taskId: string; signaled: true }> => {
-    const isDev = Boolean(this.#core.env.isDev)
-    const db = this.#core.db.firestore(isDev)
+    const isDev = Boolean(this.#corge.env.isDev)
+    const db = this.#corge.db.firestore(isDev)
     const docRef = db.collection('_tasks').doc(taskId)
 
     const outcome = await db.runTransaction(async (tx) => {
@@ -106,7 +106,7 @@ export class TasksService {
     if (outcome.wasWaiting) {
       const wf = this.#worker.getRuntime().registry[outcome.workflowName]
       const deadline = resolveTaskDeadline(outcome.workflowName, wf?.deadlineSeconds)
-      if (CORE_CONFIG.tasks.useCloudTasks) {
+      if (CORGE_CONFIG.tasks.useCloudTasks) {
         await this.#watcher.enqueueBatched(
           {
             taskId,
@@ -144,8 +144,8 @@ export class TasksService {
     const wf: WorkflowRuntimeEntry | undefined = this.#worker.getRuntime().registry[workflowName]
     if (!wf || !Object.keys(stepsMap).some((k) => !compMap[k])) return
 
-    const effectiveEnv = this.#core.env
-    const expiresAt = Timestamp.fromMillis(Date.now() + CORE_CONFIG.tasks.ttlMs)
+    const effectiveEnv = this.#corge.env
+    const expiresAt = Timestamp.fromMillis(Date.now() + CORGE_CONFIG.tasks.ttlMs)
     const now = Date.now()
     const wfCtx: WorkflowContext = {
       taskId,
@@ -165,8 +165,8 @@ export class TasksService {
     const params = (freshData.params as Record<string, unknown> | undefined) ?? {}
     try {
       await this.#worker.runWithWorkflowContext({ workflow: wfCtx, step: replayStep, env: effectiveEnv }, () =>
-        this.#core.internals.context.run(
-          { env: effectiveEnv, userId: this.#core.userId, role: this.#core.role, step: replayStep },
+        this.#corge.internals.context.run(
+          { env: effectiveEnv, userId: this.#corge.userId, role: this.#corge.role, step: replayStep },
           () => wf.runTask(params, replayStep)
         )
       )
@@ -175,8 +175,8 @@ export class TasksService {
   }
 
   cancel = async (taskId: string): Promise<{ taskId: string; status: 'cancelled' }> => {
-    const isDev = Boolean(this.#core.env.isDev)
-    const db = this.#core.db.firestore(isDev)
+    const isDev = Boolean(this.#corge.env.isDev)
+    const db = this.#corge.db.firestore(isDev)
     const docRef = db.collection('_tasks').doc(taskId)
     const preActiveExec = this.#worker.getActiveTaskExecution(taskId)
 

@@ -1,8 +1,8 @@
 import { HTTPException } from 'hono/http-exception'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { ZodError } from 'zod'
-import { CORE_CONFIG } from '../config'
-import type { Core } from '../index'
+import { CORGE_CONFIG } from '../config'
+import type { Corge } from '../index'
 import {
   CircuitBreakerOpenError,
   errorBodySchema,
@@ -127,7 +127,7 @@ class RateLimiter {
   }
 
   #cfg(now = Date.now()) {
-    const base = CORE_CONFIG.limits.buckets[this.#bucket]
+    const base = CORGE_CONFIG.limits.buckets[this.#bucket]
     const windowMs = this.#bucket === 'mistral' ? base.windowMs + 3000 : base.windowMs
     const max = this.#maxOverride ?? base.max
     const safeMax = this.#bucket === 'mistral' ? Math.max(1, max - 5) : max
@@ -190,23 +190,23 @@ const breakerCacheKey = (key: CircuitBreakerKey, isDev: boolean): string => `${i
 const breakerDocPath = (key: CircuitBreakerKey): string => `_system/breaker_${key}`
 
 export class ResilienceService {
-  readonly #core: Core
+  readonly #corge: Corge
 
-  constructor(coreClient: Core) {
-    this.#core = coreClient
+  constructor(corgeClient: Corge) {
+    this.#corge = corgeClient
   }
 
   #getLimiter = (b: Bucket): RateLimiter => {
-    const key = `${this.#core.env.isDev ? 'dev' : 'prod'}:${b}`
+    const key = `${this.#corge.env.isDev ? 'dev' : 'prod'}:${b}`
     return (
       limiters.get(key) ??
-      (limiters.set(key, new RateLimiter(b, () => this.#core.config.limits.maxWaitMs)), limiters.get(key)!)
+      (limiters.set(key, new RateLimiter(b, () => this.#corge.config.limits.maxWaitMs)), limiters.get(key)!)
     )
   }
 
   singleflight = <T>(key: string, fn: () => Promise<T>, opts?: SingleflightOptions): Promise<T> => {
     const scope = opts?.scope ?? 'tenant'
-    const active = this.#core.internals.context.getState()
+    const active = this.#corge.internals.context.getState()
     const activeUserId = scope === 'tenant' ? active?.userId : undefined
     const scopedKey = activeUserId ? `tenant:${activeUserId}:${key}` : `global:${key}`
 
@@ -216,8 +216,8 @@ export class ResilienceService {
     const exec =
       scope === 'global' && active
         ? () =>
-            this.#core.internals.context.run(
-              { env: active.env, userId: this.#core.config.auth.adminUserId, role: 'admin' },
+            this.#corge.internals.context.run(
+              { env: active.env, userId: this.#corge.config.auth.adminUserId, role: 'admin' },
               fn
             )
         : fn
@@ -230,8 +230,8 @@ export class ResilienceService {
 
   acquireLimit = async (bucket: Bucket, cost = 1): Promise<void> => {
     const waitMs = this.#getLimiter(bucket).acquire(cost)
-    if (waitMs > this.#core.config.limits.maxWaitMs) {
-      this.#core.errors.httpError(429, `Rate limit exceeded for ${bucket}`, 'RATE_LIMITED', waitMs)
+    if (waitMs > this.#corge.config.limits.maxWaitMs) {
+      this.#corge.errors.httpError(429, `Rate limit exceeded for ${bucket}`, 'RATE_LIMITED', waitMs)
     }
     if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs))
   }
@@ -256,7 +256,7 @@ export class ResilienceService {
     }
     if (existing.count >= max) {
       const retryAfterMs = Math.max(1000, existing.resetAt - now)
-      this.#core.errors.httpError(429, 'Rate limit exceeded', 'RATE_LIMITED', retryAfterMs)
+      this.#corge.errors.httpError(429, 'Rate limit exceeded', 'RATE_LIMITED', retryAfterMs)
     }
     existing.count += 1
   }
@@ -310,7 +310,7 @@ export class ResilienceService {
 
   getCircuitBreakerState = async (
     breakerKey: CircuitBreakerKey,
-    isDev: boolean = this.#core.env.isDev,
+    isDev: boolean = this.#corge.env.isDev,
     forceRefresh = false
   ): Promise<CircuitBreakerRecord> => {
     const cKey = breakerCacheKey(breakerKey, isDev)
@@ -324,7 +324,7 @@ export class ResilienceService {
       `breaker:read:${cKey}`,
       async () => {
         try {
-          const snap = await this.#core.db.firestore(isDev).doc(breakerDocPath(breakerKey)).get()
+          const snap = await this.#corge.db.firestore(isDev).doc(breakerDocPath(breakerKey)).get()
           const d = snap.data() as Partial<CircuitBreakerRecord> | undefined
           const record: CircuitBreakerRecord = {
             state: d?.state === 'OPEN' || d?.state === 'HALF_OPEN' ? d.state : 'CLOSED',
@@ -349,7 +349,7 @@ export class ResilienceService {
     )
   }
 
-  resetCircuitBreaker = async (breakerKey: CircuitBreakerKey, isDev: boolean = this.#core.env.isDev): Promise<void> => {
+  resetCircuitBreaker = async (breakerKey: CircuitBreakerKey, isDev: boolean = this.#corge.env.isDev): Promise<void> => {
     const cKey = breakerCacheKey(breakerKey, isDev)
     const record: CircuitBreakerRecord = {
       state: 'CLOSED',
@@ -359,7 +359,7 @@ export class ResilienceService {
       updatedAt: Date.now()
     }
     breakerCache.set(cKey, { record, cachedAt: Date.now() })
-    await this.#core.db.firestore(isDev).doc(breakerDocPath(breakerKey)).set(record).catch(() => {})
+    await this.#corge.db.firestore(isDev).doc(breakerDocPath(breakerKey)).set(record).catch(() => {})
   }
 
   #computeWindowFailureState = (prevFirst: number, prevCount: number, now: number): CircuitBreakerRecord => {
@@ -378,7 +378,7 @@ export class ResilienceService {
 
   #recordBreakerFailure = async (breakerKey: CircuitBreakerKey, isDev: boolean): Promise<CircuitBreakerRecord> => {
     const cKey = breakerCacheKey(breakerKey, isDev)
-    const db = this.#core.db.firestore(isDev)
+    const db = this.#corge.db.firestore(isDev)
     const docRef = db.doc(breakerDocPath(breakerKey))
     const now = Date.now()
 
@@ -420,7 +420,7 @@ export class ResilienceService {
     fallbackFn?: () => Promise<T>,
     opts?: { isDev?: boolean }
   ): Promise<T> => {
-    const targetIsDev = opts?.isDev ?? this.#core.env.isDev
+    const targetIsDev = opts?.isDev ?? this.#corge.env.isDev
     const cKey = breakerCacheKey(breakerKey, targetIsDev)
     let current = await this.getCircuitBreakerState(breakerKey, targetIsDev)
     const now = Date.now()
@@ -429,7 +429,7 @@ export class ResilienceService {
       if (now - current.openedAt >= BREAKER_OPEN_DURATION_MS) {
         current = { ...current, state: 'HALF_OPEN' }
         breakerCache.set(cKey, { record: current, cachedAt: now })
-        void this.#core.db
+        void this.#corge.db
           .firestore(targetIsDev)
           .doc(breakerDocPath(breakerKey))
           .set({ state: 'HALF_OPEN', updatedAt: now }, { merge: true })

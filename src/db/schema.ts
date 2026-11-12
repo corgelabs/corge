@@ -1,7 +1,7 @@
 import { z } from 'zod'
-import type { Core } from '../index'
+import type { Corge } from '../index'
 import {
-  CORE_CONFIG,
+  CORGE_CONFIG,
   type DbAccessScope,
   type DbAction,
   type DbRole,
@@ -15,7 +15,7 @@ export interface DbCallContext {
   userId?: EntryId
   userRole?: DbRole
   bypassRbac?: boolean
-  core?: Core
+  corge?: Corge
 }
 
 export const entryId = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/)
@@ -87,7 +87,7 @@ export interface CollectionDefinition<S extends z.ZodObject<any> = z.ZodObject<a
   userRelation?: UserRelationConfig
   rbac?: RbacConfig
   sortByUpdated?: boolean
-  onHardDelete?: (doc: WithBaseFields<z.infer<S>>, core: Core) => Promise<void>
+  onHardDelete?: (doc: WithBaseFields<z.infer<S>>, corge: Corge) => Promise<void>
 }
 
 export interface DbListOptions<M = Record<string, any>> {
@@ -137,7 +137,7 @@ export const coreCollections = defineCollections({
       userId: entryId,
       agentId: z.string().default('chat'),
       title: z.string().default('New Chat'),
-      model: z.string().default(CORE_CONFIG.models.vertex),
+      model: z.string().default(CORGE_CONFIG.models.vertex),
       messageCount: z.number().int().nonnegative().default(0),
       summary: z.string().nullable().optional(),
       activeGenerationId: z.string().nullable().optional()
@@ -381,9 +381,9 @@ export const getCollectionDef = (name: string): CollectionDefinition<any> => {
 export const getEffectiveRbac = (collection: string): RbacConfig => {
   const def = getCollectionDef(collection)
   return {
-    admin: { ...CORE_CONFIG.db.rbac.admin, ...def.rbac?.admin },
-    user: { ...CORE_CONFIG.db.rbac.user, ...def.rbac?.user },
-    anon: { ...CORE_CONFIG.db.rbac.anon, ...def.rbac?.anon }
+    admin: { ...CORGE_CONFIG.db.rbac.admin, ...def.rbac?.admin },
+    user: { ...CORGE_CONFIG.db.rbac.user, ...def.rbac?.user },
+    anon: { ...CORGE_CONFIG.db.rbac.anon, ...def.rbac?.anon }
   }
 }
 

@@ -1,6 +1,6 @@
 import type { DocumentReference, DocumentSnapshot } from 'firebase-admin/firestore'
-import { CORE_CONFIG } from '../config'
-import type { Core } from '../index'
+import { CORGE_CONFIG } from '../config'
+import type { Corge } from '../index'
 import { TaskWaitDetachedSignal, type TaskRecord, type WatchTaskOptions, type WorkflowTaskPayload } from './schema'
 import type { TaskStepsEngine } from './steps'
 import { getQueueBase, getQueueLoc, getQueueParent, getWorkerUri, isTerminalRecord } from './utils'
@@ -28,26 +28,26 @@ let nextShard = 0
 let activeWatcherCount = 0
 
 export class TaskWatcherEngine {
-  readonly #core: Core
+  readonly #corge: Corge
   readonly #steps: TaskStepsEngine
 
-  constructor(coreClient: Core, steps: TaskStepsEngine) {
-    this.#core = coreClient
+  constructor(corgeClient: Corge, steps: TaskStepsEngine) {
+    this.#corge = corgeClient
     this.#steps = steps
   }
 
   getActiveWatcherCount = (): number => activeWatcherCount
 
   #sendBatch = async (queueParent: string, chunk: BatchItem[]): Promise<void> => {
-    await this.#core.internals.resilience.acquireLimit('workflows', chunk.length)
-    const accessToken = await this.#core.internals.registry.getGcpAccessToken()
+    await this.#corge.internals.resilience.acquireLimit('workflows', chunk.length)
+    const accessToken = await this.#corge.internals.registry.getGcpAccessToken()
     const isDev = Boolean(chunk[0]?.payload.isDev)
     const queueBase = getQueueBase(isDev)
-    const shardsCount = Math.max(1, CORE_CONFIG.tasks.defaultShardsCount)
+    const shardsCount = Math.max(1, CORGE_CONFIG.tasks.defaultShardsCount)
     const headers = {
       authorization: `Bearer ${accessToken}`,
       'content-type': 'application/json',
-      'x-goog-user-project': CORE_CONFIG.gcpProject
+      'x-goog-user-project': CORGE_CONFIG.gcpProject
     }
     const buildRequests = (parent: string) =>
       chunk.map((i) => {
@@ -64,7 +64,7 @@ export class TaskWatcherEngine {
               httpMethod: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: Buffer.from(JSON.stringify({ data: i.payload })).toString('base64'),
-              oidcToken: { serviceAccountEmail: CORE_CONFIG.serviceAccount, audience: workerUri }
+              oidcToken: { serviceAccountEmail: CORGE_CONFIG.serviceAccount, audience: workerUri }
             }
           }
         }
@@ -118,8 +118,8 @@ export class TaskWatcherEngine {
         flushScheduled = true
         queueMicrotask(() => {
           flushScheduled = false
-          const shardsCount = Math.max(1, CORE_CONFIG.tasks.defaultShardsCount)
-          const batchSize = Math.max(1, CORE_CONFIG.tasks.batchCreateSize)
+          const shardsCount = Math.max(1, CORGE_CONFIG.tasks.defaultShardsCount)
+          const batchSize = Math.max(1, CORGE_CONFIG.tasks.batchCreateSize)
           const byShard = new Map<string, BatchItem[]>()
           for (const item of batchQueue.splice(0)) {
             const parent = getQueueParent(nextShard++ % shardsCount, item.payload.isDev)
@@ -139,8 +139,8 @@ export class TaskWatcherEngine {
 
   #delRefs = (refs: DocumentReference[], isDev: boolean): void => {
     if (!refs.length) return
-    const batch = this.#core.db.firestore(isDev).batch()
-    const bucket = this.#core.db.bucket(isDev)
+    const batch = this.#corge.db.firestore(isDev).batch()
+    const bucket = this.#corge.db.bucket(isDev)
     refs.forEach((r) => {
       batch.delete(r)
       void bucket.deleteFiles({ prefix: `_tasks/${r.id}/` }).catch(() => {})
@@ -182,7 +182,7 @@ export class TaskWatcherEngine {
         }
         const rawData = snap.data() as { lastHeartbeatAt?: number } | undefined
         const lastHb = typeof rawData?.lastHeartbeatAt === 'number' ? rawData.lastHeartbeatAt : opts.createdAt
-        if (Date.now() - lastHb > CORE_CONFIG.tasks.heartbeatStaleMs) {
+        if (Date.now() - lastHb > CORGE_CONFIG.tasks.heartbeatStaleMs) {
           hedged = true
           opts.dispatch().catch(() => {})
         }
@@ -263,13 +263,13 @@ export class TaskWatcherEngine {
     })
 
   watchTask = async <O = unknown>(taskId: string, opts?: WatchTaskOptions): Promise<TaskRecord<O>> => {
-    const isDev = Boolean(opts?.isDev ?? this.#core.env.isDev)
-    const docRef = opts?.docRef ?? this.#core.db.firestore(isDev).collection('_tasks').doc(taskId)
+    const isDev = Boolean(opts?.isDev ?? this.#corge.env.isDev)
+    const docRef = opts?.docRef ?? this.#corge.db.firestore(isDev).collection('_tasks').doc(taskId)
     const workflowName = opts?.workflowName ?? 'workflow'
     const hedgeable = Boolean(opts?.hedgeable ?? workflowName === 'scan-attachment')
     const keepAlive = opts?.keepAlive ?? true
-    const timeoutMs = opts?.timeoutMs ?? CORE_CONFIG.tasks.timeoutMs
-    const hedgeAfterMs = opts?.hedgeAfterMs ?? CORE_CONFIG.tasks.hedgeAfterMs
+    const timeoutMs = opts?.timeoutMs ?? CORGE_CONFIG.tasks.timeoutMs
+    const hedgeAfterMs = opts?.hedgeAfterMs ?? CORGE_CONFIG.tasks.hedgeAfterMs
     const pollIntervalMs = opts?.pollIntervalMs ?? 5_000
     const createdAt = Date.now()
 

@@ -1,17 +1,17 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 import type { UserRecord } from 'firebase-admin/auth'
-import { CORE_CONFIG, type DbRole } from '../config'
+import { CORGE_CONFIG, type DbRole } from '../config'
 import type { EntryId } from '../db'
 import type { AuthUser, LinkedProvider, OAuthProvider, UserAuthMetaRecord } from './schema'
 
 export const resolveUserRole = (userId?: EntryId, explicitRole?: DbRole): DbRole => {
   if (explicitRole === 'admin' || explicitRole === 'user' || explicitRole === 'anon') return explicitRole
-  if (userId === CORE_CONFIG.auth.adminUserId) return 'admin'
+  if (userId === CORGE_CONFIG.auth.adminUserId) return 'admin'
   return userId ? 'user' : 'anon'
 }
 
 export const resolveTokenRole = (decoded: Record<string, unknown>, uid: EntryId): DbRole =>
-  uid === CORE_CONFIG.auth.adminUserId || decoded.role === 'admin' || decoded.admin === true ? 'admin' : 'user'
+  uid === CORGE_CONFIG.auth.adminUserId || decoded.role === 'admin' || decoded.admin === true ? 'admin' : 'user'
 
 export const normalizeDate = (val: unknown, fallback = new Date()): Date => {
   if (val instanceof Date) return val

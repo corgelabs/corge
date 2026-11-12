@@ -4,7 +4,7 @@
 
 ### The All-in-One AI & SaaS Backend Built for Agentic Coding.
 
-Stop stitching 10 SDKs together. **Auth, DB, Storage, Payments, Emails, Multimodal AI, Hybrid RAG, and Durable Workflows**—all in one `core` singleton your AI agent masters in one read.
+Stop stitching 10 SDKs together. **Auth, DB, Storage, Payments, Emails, Multimodal AI, Hybrid RAG, and Durable Workflows**—all in one `corge` singleton your AI agent masters in one read.
 
 [![npm version](https://img.shields.io/npm/v/@corgelabs/corge?color=f59e0b&label=%40corgelabs%2Fcorge)](https://www.npmjs.com/package/@corgelabs/corge)
 [![Node.js 24+](https://img.shields.io/badge/NodeJS-24%2B-339933?logo=nodedotjs&logoColor=white)](https://nodejs.org)
@@ -20,7 +20,7 @@ Stop stitching 10 SDKs together. **Auth, DB, Storage, Payments, Emails, Multimod
 
 ## 🔥 1 Package Replaces 10
 
-AI coding agents hallucinate when juggling 10 different SDKs and 10,000 lines of glue code. **Corge collapses the entire SaaS & AI stack into one declarative API (`core.define.*`)**:
+AI coding agents hallucinate when juggling 10 different SDKs and 10,000 lines of glue code. **Corge collapses the entire SaaS & AI stack into one declarative API (`corge.define.*`)**:
 
 - **Zero Context-Window Bloat**: Only `1` runtime dependency in `package.json` and `1` self-contained spec (`node_modules/@corgelabs/corge/docs/SPEC.md`).
 - **Production-Hardened Out of the Box**: Multi-tenant RBAC, content-addressed storage, Stripe/Dodo webhooks, SendGrid/Resend bounce suppression, and adaptive `200`/`202` durable workflows with Saga rollback.
@@ -28,14 +28,14 @@ AI coding agents hallucinate when juggling 10 different SDKs and 10,000 lines of
 
 | What You Need | The Old Way (10+ SDKs & Glue) | With `@corgelabs/corge` |
 | :--- | :--- | :--- |
-| **API & Guards** | Hono/Express + custom auth, CORS, rate limits | `core.createApp()` + `core.define.routes()` |
+| **API & Guards** | Hono/Express + custom auth, CORS, rate limits | `corge.createApp()` + `corge.define.routes()` |
 | **Durable Workflows** | Temporal / Inngest / BullMQ + Redis workers | `mode: 'workflow'` + `step()` with Saga rollback |
-| **AI, RAG & MCP** | Vercel AI + OCR + vector DB + custom MCP | `core.ai`, `core.chat`, `core.attachments` + `mcp: true` |
-| **Database & RBAC** | Raw Firestore + manual converters & ACLs | `core.db` + `core.define.collections()` |
-| **File Storage** | Raw GCS + manual MIME & ownership checks | `core.files` (`{userId}_{sha256}` $O(1)$ ACLs + magic bytes) |
-| **Auth & OIDC** | Custom JWTs, Google/Apple OAuth, revocation | `core.auth` (Cookies, OIDC, 3s revocation watermark) |
-| **Payments & Quotas** | Stripe / Dodo SDKs + webhooks + token meters | `core.payments` (Plans, Webhooks, AI Token Quotas) |
-| **Emails** | SendGrid / Resend + bounce suppression tables | `core.emails` (Zod templates, attachments, auto-suppression) |
+| **AI, RAG & MCP** | Vercel AI + OCR + vector DB + custom MCP | `corge.ai`, `corge.chat`, `corge.attachments` + `mcp: true` |
+| **Database & RBAC** | Raw Firestore + manual converters & ACLs | `corge.db` + `corge.define.collections()` |
+| **File Storage** | Raw GCS + manual MIME & ownership checks | `corge.files` (`{userId}_{sha256}` $O(1)$ ACLs + magic bytes) |
+| **Auth & OIDC** | Custom JWTs, Google/Apple OAuth, revocation | `corge.auth` (Cookies, OIDC, 3s revocation watermark) |
+| **Payments & Quotas** | Stripe / Dodo SDKs + webhooks + token meters | `corge.payments` (Plans, Webhooks, AI Token Quotas) |
+| **Emails** | SendGrid / Resend + bounce suppression tables | `corge.emails` (Zod templates, attachments, auto-suppression) |
 | **Dev & Cloud Deploy** | Custom bundlers, Secret Manager & CI scripts | `npx corge dev` · `corge deploy` · `corge test` |
 
 ---
@@ -47,8 +47,8 @@ Drop this into your repo's `AGENTS.md`, `CLAUDE.md`, or `.gemini/GEMINI.md` so C
 ```markdown
 ## Backend Rules (@corgelabs/corge)
 - Read `node_modules/@corgelabs/corge/docs/SPEC.md` before writing backend code.
-- Use `core` and `useCore` from `@corgelabs/corge` for all routes, DB, AI, auth, files, payments, and emails.
-- Keep `src/` 100% declarative (`core.define.*`) and wrap multi-step mutations in `step()` with `rollback`.
+- Use `corge` and `useCorge` from `@corgelabs/corge` for all routes, DB, AI, auth, files, payments, and emails.
+- Keep `src/` 100% declarative (`corge.define.*`) and wrap multi-step mutations in `step()` with `rollback`.
 ```
 
 ---
@@ -61,14 +61,14 @@ npm i @corgelabs/corge && npx corge init
 
 ```ts
 // src/index.ts
-import { core } from '@corgelabs/corge'
+import { corge } from '@corgelabs/corge'
 import { z } from 'zod'
 
-const collections = core.define.collections({
-  invoice: core.define.collection({
+const collections = corge.define.collections({
+  invoice: corge.define.collection({
     schema: z.strictObject({
-      id: core.schemas.entryId,
-      userId: core.schemas.entryId,
+      id: corge.schemas.entryId,
+      userId: corge.schemas.entryId,
       vendor: z.string(),
       totalCents: z.number().int().nonnegative()
     }),
@@ -76,31 +76,31 @@ const collections = core.define.collections({
   })
 })
 
-const routes = core.define.routes({
-  'extract-invoice': core.define.route({
+const routes = corge.define.routes({
+  'extract-invoice': corge.define.route({
     mode: 'workflow',
     method: 'POST',
     path: '/invoices/extract',
     description: 'Extracts structured invoice fields from a PDF and saves a ledger entry',
     mcp: true,
-    input: z.strictObject({ fileRef: core.schemas.fileRef }),
+    input: z.strictObject({ fileRef: corge.schemas.fileRef }),
     handler: async ({ input, step }) => {
       const extracted = await step('vision-extract', () =>
-        core.ai.vision({
+        corge.ai.vision({
           fileRef: input.fileRef,
           prompt: 'Extract vendor name and total amount in cents.',
           schema: z.object({ vendor: z.string(), totalCents: z.number().int() })
         })
       )
       return step('save-invoice', {
-        fn: () => core.db.create('invoice', { userId: core.userId, ...extracted.output }),
-        rollback: (inv) => core.db.delete('invoice', inv.id)
+        fn: () => corge.db.create('invoice', { userId: corge.userId, ...extracted.output }),
+        rollback: (inv) => corge.db.delete('invoice', inv.id)
       })
     }
   })
 })
 
-export const { app, devApp, functions } = core.createApp({ collections, routes })
+export const { app, devApp, functions } = corge.createApp({ collections, routes })
 ```
 
 ```bash

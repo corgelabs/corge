@@ -3,9 +3,9 @@ import path from 'node:path'
 import type { ModelMessage } from 'ai'
 import { FieldValue, type Query } from 'firebase-admin/firestore'
 import type { JevQuestion } from '../ai'
-import { CORE_CONFIG, type DbRole } from '../config'
+import { CORGE_CONFIG, type DbRole } from '../config'
 import type { EntryId } from '../db'
-import { Core } from '../index'
+import { Corge } from '../index'
 import type {
   AgentConfig,
   ChatMessagePublic,
@@ -32,10 +32,10 @@ let contextCatalog: readonly ContextItemSpec[] = []
 const markdownCache = new Map<string, string>()
 
 export class ChatContextEngine {
-  readonly #core: Core
+  readonly #corge: Corge
 
-  constructor(coreClient: Core) {
-    this.#core = coreClient
+  constructor(corgeClient: Corge) {
+    this.#corge = corgeClient
   }
 
   registerContextCatalog = (items: readonly ContextItemSpec[] = [], reset = false): void => {
@@ -50,7 +50,7 @@ export class ChatContextEngine {
     const cached = markdownCache.get(relPath)
     if (cached !== undefined) return cached
 
-    const contextRoot = path.resolve(process.cwd(), CORE_CONFIG.context.dir)
+    const contextRoot = path.resolve(process.cwd(), CORGE_CONFIG.context.dir)
     const resolved = path.resolve(contextRoot, relPath)
     if (!resolved.startsWith(contextRoot + path.sep) || !relPath.endsWith('.md')) {
       return undefined
@@ -82,7 +82,7 @@ export class ChatContextEngine {
     )
     if (validItems.length === 0) return []
 
-    const maxSources = options?.maxSources ?? CORE_CONFIG.context.maxSources
+    const maxSources = options?.maxSources ?? CORGE_CONFIG.context.maxSources
     const userState = options?.userState
     const stateHint = userState ? ' Use the provided userState when judging relevance.' : ''
     const questions: Record<string, JevQuestion> = {}
@@ -98,7 +98,7 @@ export class ChatContextEngine {
     })
 
     try {
-      const decision = await this.#core.ai.decide(
+      const decision = await this.#corge.ai.decide(
         { prompt: trimmed, ...(userState ? { userState } : {}) },
         questions
       )
@@ -132,22 +132,22 @@ export class ChatContextEngine {
     abortSignal?: AbortSignal
   }): Promise<UserContext | undefined> => {
     const resolver = opts.agent?.resolveUserContext
-    const role = opts.role ?? this.#core.internals.auth.resolveUserRole(opts.userId)
+    const role = opts.role ?? this.#corge.internals.auth.resolveUserRole(opts.userId)
     if (!resolver || !opts.userId || role === 'anon') return undefined
-    const timeout = AbortSignal.timeout(CORE_CONFIG.context.userContextTimeoutMs)
+    const timeout = AbortSignal.timeout(CORGE_CONFIG.context.userContextTimeoutMs)
     const signal = opts.abortSignal ? AbortSignal.any([opts.abortSignal, timeout]) : timeout
     let onAbort: (() => void) | undefined
     try {
-      const state = { env: this.#core.env, userId: opts.userId, role }
-      const turnCore = new Core(state)
+      const state = { env: this.#corge.env, userId: opts.userId, role }
+      const turnCore = new Corge(state)
       const aborted = new Promise<undefined>((resolve) => {
         onAbort = () => resolve(undefined)
         if (signal.aborted) return resolve(undefined)
         signal.addEventListener('abort', onAbort, { once: true })
       })
       const result = await Promise.race([
-        this.#core.internals.context.run(state, () =>
-          Promise.resolve(resolver({ userId: opts.userId, core: turnCore, signal }))
+        this.#corge.internals.context.run(state, () =>
+          Promise.resolve(resolver({ userId: opts.userId, corge: turnCore, signal }))
         ),
         aborted
       ])
@@ -167,7 +167,7 @@ export class ChatContextEngine {
     fallbackChatId = ''
   ): Promise<RecalledMemorySnippet[]> => {
     try {
-      await this.#core.internals.resilience.acquireLimit('firestore')
+      await this.#corge.internals.resilience.acquireLimit('firestore')
       const snap = await baseQuery
         .select(...RECALL_MESSAGE_FIELDS)
         .findNearest({
@@ -204,10 +204,10 @@ export class ChatContextEngine {
     messageCount: number,
     slidingWindowSize: number
   ): Promise<RecalledMemorySnippet[]> => {
-    const queryVector = await this.#core.ai.embed(prompt)
+    const queryVector = await this.#corge.ai.embed(prompt)
     if (!queryVector) return []
     const vectorValue = FieldValue.vector(queryVector)
-    const db = this.#core.db.firestore()
+    const db = this.#corge.db.firestore()
 
     const inChatPromise =
       chatId && messageCount > slidingWindowSize
@@ -235,24 +235,24 @@ export class ChatContextEngine {
 
   retrieveContext = async (opts: HybridRetrievalOptions): Promise<HybridRetrievalResult> => {
     const {
-      userId = this.#core.userId,
+      userId = this.#corge.userId,
       chatId,
       messageCount = 0,
       prompt,
       useContext = true,
-      slidingWindowSize = CORE_CONFIG.limits.chatMessagesLimit,
+      slidingWindowSize = CORGE_CONFIG.limits.chatMessagesLimit,
       agent,
       role,
       abortSignal
     } = opts
-    const db = this.#core.db.firestore()
+    const db = this.#corge.db.firestore()
 
     const userContextPromise = this.#resolveTurnUserContext({ userId, role, agent, abortSignal })
 
     const slidingWindowPromise = (async (): Promise<ChatMessagePublic[]> => {
       if (!chatId) return []
       try {
-        await this.#core.internals.resilience.acquireLimit('firestore')
+        await this.#corge.internals.resilience.acquireLimit('firestore')
         const snap = await db
           .collection('chat')
           .doc(chatId)

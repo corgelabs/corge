@@ -3,10 +3,10 @@ import { type DocumentReference } from 'firebase-admin/firestore'
 import type { Context } from 'hono'
 import type { z } from 'zod'
 import type { AttachmentTypesMap, ProcessedAttachment } from '../attachments'
-import { CORE_CONFIG, type AppEnv, type DbRole } from '../config'
+import { CORGE_CONFIG, type AppEnv, type DbRole } from '../config'
 import { entryId, type EntryId, type SelectModel } from '../db'
 import type { FileRef, FileType } from '../files'
-import { Core } from '../index'
+import { Corge } from '../index'
 import {
   saveChatBody,
   streamChatBody,
@@ -39,31 +39,31 @@ const activeGenerations = new Map<string, ActiveGenerationEntry>()
 const genKey = (isDev: boolean, chatId: string): string => `${isDev ? 'dev' : 'prod'}:${chatId}`
 
 export class ChatStreamEngine {
-  readonly #core: Core
+  readonly #corge: Corge
   readonly #agentRegistry: Map<string, AgentConfig>
 
-  constructor(coreClient: Core, agentRegistry: Map<string, AgentConfig>) {
-    this.#core = coreClient
+  constructor(corgeClient: Corge, agentRegistry: Map<string, AgentConfig>) {
+    this.#corge = corgeClient
     this.#agentRegistry = agentRegistry
   }
 
   #assertChatAccess = async (chatId: EntryId): Promise<void> => {
-    const caller = this.#core.caller
-    if (caller.role !== 'admin' && caller.userId !== CORE_CONFIG.auth.adminUserId) {
-      const chatDoc = await this.#core.db.read('chat', chatId, false, {
+    const caller = this.#corge.caller
+    if (caller.role !== 'admin' && caller.userId !== CORGE_CONFIG.auth.adminUserId) {
+      const chatDoc = await this.#corge.db.read('chat', chatId, false, {
         userId: caller.userId,
         userRole: caller.role
       })
-      if (!chatDoc) this.#core.errors.httpError(404, `Chat not found: ${chatId}`, 'NOT_FOUND')
+      if (!chatDoc) this.#corge.errors.httpError(404, `Chat not found: ${chatId}`, 'NOT_FOUND')
     }
   }
 
   enforceAgentAccess = async (c: Context<AppEnv>, agent: AgentConfig, scopeKey: string): Promise<void> => {
     if (agent.auth) {
-      await this.#core.internals.context.authenticateRequest(c, agent.auth)
+      await this.#corge.internals.context.authenticateRequest(c, agent.auth)
     }
     if (agent.rateLimit !== undefined) {
-      this.#core.internals.context.applyRateLimit(c, agent.rateLimit, `${scopeKey}:${agent.name ?? 'agent'}`)
+      this.#corge.internals.context.applyRateLimit(c, agent.rateLimit, `${scopeKey}:${agent.name ?? 'agent'}`)
     }
   }
 
@@ -73,68 +73,68 @@ export class ChatStreamEngine {
     types?: AttachmentTypesMap
   ): Promise<{ staged: { ref: FileRef; filename: string }[]; attachments: ProcessedAttachment[] }> => {
     if (parts.length === 0) return { staged: [], attachments: [] }
-    if (parts.length > CORE_CONFIG.limits.maxChatAttachments) {
-      this.#core.errors.httpError(
+    if (parts.length > CORGE_CONFIG.limits.maxChatAttachments) {
+      this.#corge.errors.httpError(
         400,
-        `Too many attachments (max ${CORE_CONFIG.limits.maxChatAttachments})`,
+        `Too many attachments (max ${CORGE_CONFIG.limits.maxChatAttachments})`,
         'TOO_MANY_ATTACHMENTS'
       )
     }
     const staged = await Promise.all(
       parts.map(async (part) => {
         if (part.ref) {
-          if (!this.#core.files.canAccess(part.ref, userId)) {
-            this.#core.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
+          if (!this.#corge.files.canAccess(part.ref, userId)) {
+            this.#corge.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
           }
           return { ref: part.ref, filename: part.filename }
         }
         if ((part.dataUrl?.length ?? 0) > 28 * 1024 * 1024) {
-          this.#core.errors.httpError(413, 'Attachment exceeds 20MiB limit', 'PAYLOAD_TOO_LARGE')
+          this.#corge.errors.httpError(413, 'Attachment exceeds 20MiB limit', 'PAYLOAD_TOO_LARGE')
         }
         const match = /^data:([^;,]+);base64,(.+)$/.exec(part.dataUrl ?? '')
         if (!match?.[1] || !match[2]) {
-          return this.#core.errors.httpError(400, 'Invalid base64 data URL for attachment', 'INVALID_FILE')
+          return this.#corge.errors.httpError(400, 'Invalid base64 data URL for attachment', 'INVALID_FILE')
         }
         const contentType = match[1] as FileType
         const bytes = new Uint8Array(Buffer.from(match[2], 'base64'))
-        const { ref } = await this.#core.files.upload({ type: contentType, name: part.filename, bytes }, userId)
+        const { ref } = await this.#corge.files.upload({ type: contentType, name: part.filename, bytes }, userId)
         return { ref, filename: part.filename }
       })
     )
-    const { attachments } = await this.#core.attachments.process({ refs: staged.map((s) => s.ref) }, { types })
+    const { attachments } = await this.#corge.attachments.process({ refs: staged.map((s) => s.ref) }, { types })
     return { staged, attachments }
   }
 
   saveChat = async ({
-    userId = this.#core.userId,
+    userId = this.#corge.userId,
     input
   }: {
     userId?: EntryId
     input: z.infer<typeof saveChatBody>
   }): Promise<SelectModel<'chat'>> => {
     const targetId = input.id ?? input.chatId
-    const existing = targetId ? await this.#core.db.read('chat', targetId, true, { bypassRbac: true }) : undefined
-    if (existing && userId !== CORE_CONFIG.auth.adminUserId && existing.userId !== userId) {
-      return this.#core.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
+    const existing = targetId ? await this.#corge.db.read('chat', targetId, true, { bypassRbac: true }) : undefined
+    if (existing && userId !== CORGE_CONFIG.auth.adminUserId && existing.userId !== userId) {
+      return this.#corge.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
     }
     const defaultAgentId = this.#agentRegistry.keys().next().value ?? 'chat'
     if (existing && input.agentId && input.agentId !== existing.agentId) {
-      return this.#core.errors.httpError(400, 'Cannot switch agentId on an existing chat', 'AGENT_IMMUTABLE')
+      return this.#corge.errors.httpError(400, 'Cannot switch agentId on an existing chat', 'AGENT_IMMUTABLE')
     }
     const title = input.title ?? existing?.title ?? 'New Chat'
     const agentId = existing ? existing.agentId : (input.agentId ?? defaultAgentId)
     if (!this.#agentRegistry.has(agentId)) {
-      return this.#core.errors.httpError(404, `Unknown agent: ${agentId}`, 'NOT_FOUND')
+      return this.#corge.errors.httpError(404, `Unknown agent: ${agentId}`, 'NOT_FOUND')
     }
-    const model = input.model ?? existing?.model ?? CORE_CONFIG.models.vertex
+    const model = input.model ?? existing?.model ?? CORGE_CONFIG.models.vertex
 
     if (existing && targetId) {
       const patch = { title, model, ...(input.summary !== undefined ? { summary: input.summary } : {}), deleted: false }
-      await this.#core.db.update('chat', targetId, patch, { bypassRbac: true })
+      await this.#corge.db.update('chat', targetId, patch, { bypassRbac: true })
       return { ...existing, ...patch, updatedAt: new Date() }
     }
 
-    return this.#core.db.create(
+    return this.#corge.db.create(
       'chat',
       {
         ...(targetId ? { id: targetId } : {}),
@@ -153,13 +153,13 @@ export class ChatStreamEngine {
   messages = async (chatId: EntryId, opts?: ListChatMessagesOptions): Promise<ChatMessagePublic[]> => {
     await this.#assertChatAccess(chatId)
     const limit = Math.min(
-      Math.max(opts?.limit ?? CORE_CONFIG.limits.chatMessagesLimit, 1),
-      CORE_CONFIG.limits.defaultListLimit
+      Math.max(opts?.limit ?? CORGE_CONFIG.limits.chatMessagesLimit, 1),
+      CORGE_CONFIG.limits.defaultListLimit
     )
-    const db = this.#core.db.firestore()
+    const db = this.#corge.db.firestore()
     const messagesCol = db.collection('chat').doc(chatId).collection('messages')
 
-    await this.#core.internals.resilience.acquireLimit('firestore')
+    await this.#corge.internals.resilience.acquireLimit('firestore')
     let query = messagesCol.select(...PUBLIC_MESSAGE_FIELDS).orderBy('createdAt', 'desc').limit(limit)
     if (opts?.before) {
       const beforeSnap = await messagesCol.doc(opts.before).get()
@@ -171,10 +171,10 @@ export class ChatStreamEngine {
 
   cancel = async (chatId: EntryId): Promise<{ chatId: string; cancelled: true }> => {
     await this.#assertChatAccess(chatId)
-    const key = genKey(Boolean(this.#core.env.isDev), chatId)
+    const key = genKey(Boolean(this.#corge.env.isDev), chatId)
     const localGen = activeGenerations.get(key)
 
-    await this.#core.db.update('chat', chatId, { activeGenerationId: null }, { bypassRbac: true }).catch(() => {})
+    await this.#corge.db.update('chat', chatId, { activeGenerationId: null }, { bypassRbac: true }).catch(() => {})
 
     if (localGen) {
       localGen.controller.abort(new Error('Cancelled by user'))
@@ -192,41 +192,41 @@ export class ChatStreamEngine {
       paramValue && this.#agentRegistry.has(paramValue) && !body.agentId && !body.chatId && !body.id
     )
     const defaultAgentId = this.#agentRegistry.keys().next().value ?? 'chat'
-    const db = this.#core.db.firestore()
+    const db = this.#corge.db.firestore()
     const candidateChatId = !paramIsAgent ? (paramValue ?? body.chatId ?? body.id) : (body.chatId ?? body.id)
     const chatId =
       candidateChatId && entryId.safeParse(candidateChatId).success
         ? candidateChatId
         : db.collection('chat').doc().id
 
-    const existing = await this.#core.db.read('chat', chatId, true, { bypassRbac: true })
-    if (existing && userId !== CORE_CONFIG.auth.adminUserId && existing.userId !== userId) {
-      this.#core.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
+    const existing = await this.#corge.db.read('chat', chatId, true, { bypassRbac: true })
+    if (existing && userId !== CORGE_CONFIG.auth.adminUserId && existing.userId !== userId) {
+      this.#corge.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
     }
 
     const requestedAgentId = body.agentId ?? (paramIsAgent ? paramValue : undefined)
     if (existing && requestedAgentId && requestedAgentId !== existing.agentId) {
-      this.#core.errors.httpError(400, 'Cannot switch agentId on an existing chat', 'AGENT_IMMUTABLE')
+      this.#corge.errors.httpError(400, 'Cannot switch agentId on an existing chat', 'AGENT_IMMUTABLE')
     }
     const resolvedAgentId = existing ? existing.agentId : (requestedAgentId ?? defaultAgentId)
     const agent = this.#agentRegistry.get(resolvedAgentId)
-    if (!agent) return this.#core.errors.httpError(404, `Unknown agent: ${resolvedAgentId}`, 'NOT_FOUND')
+    if (!agent) return this.#corge.errors.httpError(404, `Unknown agent: ${resolvedAgentId}`, 'NOT_FOUND')
     await this.enforceAgentAccess(c, agent, 'chat.stream')
 
     const attachmentParts = extractTurnAttachmentParts(body.message)
     const rawUserText = extractMessageText(body.message)
     if (!rawUserText && attachmentParts.length === 0) {
-      this.#core.errors.httpError(400, 'message must contain non-empty text or attachments', 'VALIDATION_ERROR')
+      this.#corge.errors.httpError(400, 'message must contain non-empty text or attachments', 'VALIDATION_ERROR')
     }
 
-    const key = genKey(Boolean(this.#core.env.isDev), chatId)
-    const activeTimeoutMs = CORE_CONFIG.cloudRun.http.timeoutSeconds * 1000
+    const key = genKey(Boolean(this.#corge.env.isDev), chatId)
+    const activeTimeoutMs = CORGE_CONFIG.cloudRun.http.timeoutSeconds * 1000
     const hasFreshRemoteLock =
       Boolean(existing?.activeGenerationId) &&
       Date.now() - (existing?.updatedAt instanceof Date ? existing.updatedAt.getTime() : 0) < activeTimeoutMs
 
     if (activeGenerations.has(key) || hasFreshRemoteLock) {
-      this.#core.errors.httpError(409, 'A generation is already in progress for this chat', 'GENERATION_IN_PROGRESS')
+      this.#corge.errors.httpError(409, 'A generation is already in progress for this chat', 'GENERATION_IN_PROGRESS')
     }
 
     return { chatId, existing, resolvedAgentId, agent, attachmentParts, rawUserText, key }
@@ -249,10 +249,10 @@ export class ChatStreamEngine {
       const finalAssistantText = assistantText.trim()
       const [userVector, assistantVector] = await Promise.all([
         opts.userVecPromise,
-        this.#core.ai.embed(finalAssistantText).catch(() => null)
+        this.#corge.ai.embed(finalAssistantText).catch(() => null)
       ])
 
-      const batch = buildCompletedTurnWriteBatch(this.#core.db.firestore(), {
+      const batch = buildCompletedTurnWriteBatch(this.#corge.db.firestore(), {
         ...opts,
         finalAssistantText,
         toolInvocations,
@@ -262,7 +262,7 @@ export class ChatStreamEngine {
         assistantVector
       })
 
-      await this.#core.internals.resilience.acquireLimit('firestore')
+      await this.#corge.internals.resilience.acquireLimit('firestore')
       await batch.commit().catch((err) => console.error('[chat] failed to commit turn batch:', err))
     } finally {
       try {
@@ -284,14 +284,14 @@ export class ChatStreamEngine {
     generationController: AbortController
   ): Promise<() => void> => {
     if (existing) {
-      await this.#core.db.update(
+      await this.#corge.db.update(
         'chat',
         chatId,
         { title, agentId: resolvedAgentId, model: selectedModel, activeGenerationId: generationId, deleted: false },
         { bypassRbac: true }
       )
     } else {
-      await this.#core.db.create(
+      await this.#corge.db.create(
         'chat',
         {
           id: chatId,
@@ -333,7 +333,7 @@ export class ChatStreamEngine {
       opts
     const [{ staged, attachments }, hybrid] = await Promise.all([
       this.stageAndScanAttachments(userId, attachmentParts, agent.attachmentTypes ?? {}),
-      this.#core.chat.retrieveContext({
+      this.#corge.chat.retrieveContext({
         userId,
         ...(chatId ? { chatId } : {}),
         ...(messageCount !== undefined ? { messageCount } : {}),
@@ -355,7 +355,7 @@ export class ChatStreamEngine {
           ...(stagedAttachmentSummaries.length > 0
             ? [{ role: 'user' as const, content: [{ type: 'text' as const, text: stagedAttachmentSummaries.join('\n\n') }] }]
             : [])
-        ].slice(-CORE_CONFIG.limits.chatMessagesLimit)
+        ].slice(-CORGE_CONFIG.limits.chatMessagesLimit)
       : [
           ...hybrid.slidingWindowMessages,
           {
@@ -364,11 +364,11 @@ export class ChatStreamEngine {
           }
         ]
 
-    const turn = await this.#core.chat.stream(agent, messagesForTurn, userId, {
+    const turn = await this.#corge.chat.stream(agent, messagesForTurn, userId, {
       ...(selectedModel ? { modelOverride: selectedModel } : {}),
       ...(chatId ? { chatId } : {}),
       abortSignal: signal,
-      core: new Core({ env: this.#core.env, userId, role }),
+      corge: new Corge({ env: this.#corge.env, userId, role }),
       dynamicContext: {
         currentTimeIso: new Date(userCreatedAtMs).toISOString(),
         recalledMemories: hybrid.recalledMemories,
@@ -382,7 +382,7 @@ export class ChatStreamEngine {
 
   streamChatSse = async ({
     c,
-    userId = this.#core.userId,
+    userId = this.#corge.userId,
     input
   }: {
     c: Context<AppEnv>
@@ -391,7 +391,7 @@ export class ChatStreamEngine {
   }): Promise<Response> => {
     const parsedBody = streamChatBody.safeParse(input ?? (await c.req.json().catch(() => ({}))))
     if (!parsedBody.success) {
-      return this.#core.errors.httpError(
+      return this.#corge.errors.httpError(
         400,
         parsedBody.error.issues.map((i) => `${i.path.join('.') || 'input'}: ${i.message}`).join('; '),
         'VALIDATION_ERROR'
@@ -412,8 +412,8 @@ export class ChatStreamEngine {
     activeGenerations.set(key, activeEntry)
 
     const title = body.title ?? existing?.title ?? deriveTitle(body.message)
-    const selectedModel = body.model ?? existing?.model ?? agent.model ?? CORE_CONFIG.models.vertex
-    const chatDocRef = this.#core.db.firestore().collection('chat').doc(chatId)
+    const selectedModel = body.model ?? existing?.model ?? agent.model ?? CORGE_CONFIG.models.vertex
+    const chatDocRef = this.#corge.db.firestore().collection('chat').doc(chatId)
     let unsubCancelWatch: (() => void) | undefined
 
     try {
@@ -428,7 +428,7 @@ export class ChatStreamEngine {
         generationId,
         generationController
       )
-      const role = this.#core.internals.auth.resolveUserRole(userId, c.get('userRole'))
+      const role = this.#corge.internals.auth.resolveUserRole(userId, c.get('userRole'))
       const { turn, stagedRefs, stagedAttachmentSummaries, userCreatedAtMs } = await this.startChatStreamTurn({
         userId,
         role,
@@ -449,7 +449,7 @@ export class ChatStreamEngine {
         turn,
         getAccumulatedText: () => accumulatedText,
         signal: generationController.signal,
-        userVecPromise: this.#core.ai.embed(finalUserText).catch(() => null),
+        userVecPromise: this.#corge.ai.embed(finalUserText).catch(() => null),
         chatDocRef,
         chatId,
         userId,
@@ -474,7 +474,7 @@ export class ChatStreamEngine {
         unsubCancelWatch?.()
       } catch {}
       activeGenerations.delete(key)
-      await this.#core.db.update('chat', chatId, { activeGenerationId: null }, { bypassRbac: true }).catch(() => {})
+      await this.#corge.db.update('chat', chatId, { activeGenerationId: null }, { bypassRbac: true }).catch(() => {})
       throw err
     }
   }

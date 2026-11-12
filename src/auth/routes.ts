@@ -1,9 +1,9 @@
 import { deleteCookie, getCookie } from 'hono/cookie'
 import type { Context } from 'hono'
 import type { z } from 'zod'
-import { CORE_CONFIG, type AppEnv, type DbRole } from '../config'
+import { CORGE_CONFIG, type AppEnv, type DbRole } from '../config'
 import type { EntryId } from '../db'
-import { core } from '../index'
+import { corge } from '../index'
 import type { StepRunner } from '../tasks'
 import {
   blockUserBody,
@@ -32,7 +32,7 @@ const respondWithSession = async (
   p: Promise<{ user: AuthUser; sessionCookie: string }>
 ): Promise<AuthUser> => {
   const { user, sessionCookie } = await p
-  core.internals.auth.setSessionCookie(c, sessionCookie)
+  corge.internals.auth.setSessionCookie(c, sessionCookie)
   return user
 }
 
@@ -48,17 +48,17 @@ export const coreAuthRoutes = {
       userId: EntryId
       role: DbRole
     }) => {
-      if (input.uid && role !== 'admin' && userId !== CORE_CONFIG.auth.adminUserId) {
-        return core.errors.httpError(403, 'Admin privileges required to mint token for specific UID', 'FORBIDDEN')
+      if (input.uid && role !== 'admin' && userId !== CORGE_CONFIG.auth.adminUserId) {
+        return corge.errors.httpError(403, 'Admin privileges required to mint token for specific UID', 'FORBIDDEN')
       }
-      return core.internals.auth.mintCustomToken(input.uid)
+      return corge.internals.auth.mintCustomToken(input.uid)
     }
   },
   'auth.session.create': {
     input: sessionBody,
     handler: async ({ c, input }: { c: Context<AppEnv>; input: z.infer<typeof sessionBody> }) =>
-      respondWithSession(c, core.internals.auth.createSession(input.idToken)).catch(() =>
-        core.errors.httpError(401, 'Invalid ID token', 'INVALID_ID_TOKEN')
+      respondWithSession(c, corge.internals.auth.createSession(input.idToken)).catch(() =>
+        corge.errors.httpError(401, 'Invalid ID token', 'INVALID_ID_TOKEN')
       )
   },
   'auth.session.get': {
@@ -67,75 +67,75 @@ export const coreAuthRoutes = {
   'auth.sign-up.email': {
     input: emailSignUpBody,
     handler: async ({ c, input }: { c: Context<AppEnv>; input: z.infer<typeof emailSignUpBody> }) =>
-      respondWithSession(c, core.internals.auth.signUpEmail(input.email, input.password, input.name))
+      respondWithSession(c, corge.internals.auth.signUpEmail(input.email, input.password, input.name))
   },
   'auth.sign-in.email': {
     input: emailSignInBody,
     handler: async ({ c, input }: { c: Context<AppEnv>; input: z.infer<typeof emailSignInBody> }) =>
-      respondWithSession(c, core.internals.auth.signInEmail(input.email, input.password))
+      respondWithSession(c, corge.internals.auth.signInEmail(input.email, input.password))
   },
   'auth.sign-in.social': {
     input: socialSignInInput,
     handler: async ({ c, input }: { c: Context<AppEnv>; input: z.infer<typeof socialSignInInput> }) =>
-      respondWithSession(c, core.auth.signInSocial(input))
+      respondWithSession(c, corge.auth.signInSocial(input))
   },
   'auth.email.send-verification': {
     input: sendVerificationEmailBody,
-    handler: async ({ userId }: { userId: EntryId }) => core.auth.sendVerificationEmail(userId)
+    handler: async ({ userId }: { userId: EntryId }) => corge.auth.sendVerificationEmail(userId)
   },
   'auth.email.verify': {
     input: verifyEmailBody,
-    handler: async ({ input }: { input: z.infer<typeof verifyEmailBody> }) => core.auth.verifyEmail(input)
+    handler: async ({ input }: { input: z.infer<typeof verifyEmailBody> }) => corge.auth.verifyEmail(input)
   },
   'auth.password.forgot': {
     input: forgotPasswordBody,
-    handler: async ({ input }: { input: z.infer<typeof forgotPasswordBody> }) => core.auth.forgotPassword(input)
+    handler: async ({ input }: { input: z.infer<typeof forgotPasswordBody> }) => corge.auth.forgotPassword(input)
   },
   'auth.password.reset': {
     input: resetPasswordBody,
-    handler: async ({ input }: { input: z.infer<typeof resetPasswordBody> }) => core.auth.resetPassword(input)
+    handler: async ({ input }: { input: z.infer<typeof resetPasswordBody> }) => corge.auth.resetPassword(input)
   },
   'auth.recovery-email.set': {
     input: setRecoveryEmailBody,
     handler: async ({ userId, input }: { userId: EntryId; input: z.infer<typeof setRecoveryEmailBody> }) =>
-      core.auth.setRecoveryEmail(input, userId)
+      corge.auth.setRecoveryEmail(input, userId)
   },
   'auth.recovery-email.verify': {
     input: verifyRecoveryEmailBody,
     handler: async ({ userId, input }: { userId: EntryId; input: z.infer<typeof verifyRecoveryEmailBody> }) =>
-      core.auth.verifyRecoveryEmail(input, userId)
+      corge.auth.verifyRecoveryEmail(input, userId)
   },
   'auth.account-recovery.initiate': {
     input: initiateAccountRecoveryBody,
     handler: async ({ input }: { input: z.infer<typeof initiateAccountRecoveryBody> }) =>
-      core.auth.initiateAccountRecovery(input)
+      corge.auth.initiateAccountRecovery(input)
   },
   'auth.account-recovery.complete': {
     input: completeAccountRecoveryBody,
     handler: async ({ c, input }: { c: Context<AppEnv>; input: z.infer<typeof completeAccountRecoveryBody> }) =>
-      respondWithSession(c, core.auth.completeAccountRecovery(input))
+      respondWithSession(c, corge.auth.completeAccountRecovery(input))
   },
   'auth.users.list': {
-    handler: async () => core.auth.listUsers()
+    handler: async () => corge.auth.listUsers()
   },
   'auth.users.block': {
     input: blockUserBody,
     handler: async ({ userId, input }: { userId: EntryId; input: z.infer<typeof blockUserBody> }) =>
-      core.auth.blockUser(input.userId ?? userId, input.blocked)
+      corge.auth.blockUser(input.userId ?? userId, input.blocked)
   },
   'auth.users.delete': {
     mode: 'workflow' as const,
     workflowName: 'erase-user',
     input: eraseUserInput,
     output: eraseUserOutput,
-    handler: async ({ input, step }: { input: EraseUserInput; step: StepRunner }) => core.auth.eraseUser(input, step)
+    handler: async ({ input, step }: { input: EraseUserInput; step: StepRunner }) => corge.auth.eraseUser(input, step)
   },
   'auth.sign-out': {
     input: signOutBody,
     handler: async ({ c, input }: { c: Context<AppEnv>; input: z.infer<typeof signOutBody> }) => {
-      const cookie = getCookie(c, CORE_CONFIG.auth.sessionCookie)
-      if (cookie) await core.internals.auth.revokeSession(cookie, Boolean(input.deleteUser)).catch(() => {})
-      deleteCookie(c, CORE_CONFIG.auth.sessionCookie, { path: '/' })
+      const cookie = getCookie(c, CORGE_CONFIG.auth.sessionCookie)
+      if (cookie) await corge.internals.auth.revokeSession(cookie, Boolean(input.deleteUser)).catch(() => {})
+      deleteCookie(c, CORGE_CONFIG.auth.sessionCookie, { path: '/' })
       return { ok: true }
     }
   }

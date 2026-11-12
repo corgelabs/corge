@@ -1,4 +1,4 @@
-import { core } from '../index'
+import { corge } from '../index'
 import type { StepRunner } from '../tasks'
 import {
   processAttachmentsInput,
@@ -14,15 +14,15 @@ export const coreAttachmentsRoutes = {
     mode: 'workflow' as const,
     input: scanAttachmentInput,
     output: scanAttachmentOutput,
-    shortCircuit: ({ input }: { input: ScanAttachmentInput }) => core.internals.context.scanShortCircuit({ input }),
+    shortCircuit: ({ input }: { input: ScanAttachmentInput }) => corge.internals.context.scanShortCircuit({ input }),
     handler: ({ input, step }: { input: ScanAttachmentInput; step: StepRunner }) =>
-      core.attachments.scan(input, { step })
+      corge.attachments.scan(input, { step })
   },
   'attachments.process': {
     mode: 'workflow' as const,
     input: processAttachmentsInput,
     output: processAttachmentsOutput,
     handler: ({ input, step }: { input: ProcessAttachmentsInput; step: StepRunner }) =>
-      core.attachments.process(input, { step })
+      corge.attachments.process(input, { step })
   }
 }

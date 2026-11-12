@@ -1,6 +1,6 @@
 import type { DocumentReference, Timestamp } from 'firebase-admin/firestore'
-import { CORE_CONFIG } from '../config'
-import type { Core } from '../index'
+import { CORGE_CONFIG } from '../config'
+import type { Corge } from '../index'
 import type { RouteMode } from '../router'
 import type { Duration } from '../utils'
 import {
@@ -34,7 +34,7 @@ import {
 const CUMULATIVE_STEPS_THRESHOLD_BYTES = 150 * 1024
 
 export class TaskStepsEngine {
-  readonly #core: Core
+  readonly #corge: Corge
   readonly #invokeChildWorkflow: (
     targetName: string,
     input: unknown,
@@ -42,14 +42,14 @@ export class TaskStepsEngine {
   ) => Promise<any>
 
   constructor(
-    coreClient: Core,
+    corgeClient: Corge,
     invokeChildWorkflow: (
       targetName: string,
       input: unknown,
       options?: { timeout?: Duration; dedupeKey?: string; wait?: boolean }
     ) => Promise<any>
   ) {
-    this.#core = coreClient
+    this.#corge = corgeClient
     this.#invokeChildWorkflow = invokeChildWorkflow
   }
 
@@ -64,11 +64,11 @@ export class TaskStepsEngine {
     try {
       const json = JSON.stringify(val)
       if (!json) return val
-      if (!forceOffload && Buffer.byteLength(json, 'utf8') <= CORE_CONFIG.tasks.claimCheckThresholdBytes) {
+      if (!forceOffload && Buffer.byteLength(json, 'utf8') <= CORGE_CONFIG.tasks.claimCheckThresholdBytes) {
         return val
       }
       const gcsPath = `_tasks/${docRef.id}/steps/${encodeURIComponent(stepId)}.json`
-      await this.#core.db
+      await this.#corge.db
         .bucket(isDev)
         .file(gcsPath)
         .save(Buffer.from(json, 'utf8'), {
@@ -84,7 +84,7 @@ export class TaskStepsEngine {
 
   maybeHydrateStepValue = async <T>(raw: unknown, isDev = false): Promise<T> => {
     if (!isClaimCheckPointer(raw)) return raw as T
-    const [buf] = await this.#core.db.bucket(isDev).file(raw.__claimCheck).download()
+    const [buf] = await this.#corge.db.bucket(isDev).file(raw.__claimCheck).download()
     return JSON.parse(buf.toString('utf8')) as T
   }
 
@@ -104,7 +104,7 @@ export class TaskStepsEngine {
 
   #assertNotFenced = (s: StepRunnerState): void => {
     if (s.fencedError) throw s.fencedError
-    if (s.wfCtx?.signal?.aborted && this.#core.errors.isStaleWorkerEpochError(s.wfCtx.signal.reason)) {
+    if (s.wfCtx?.signal?.aborted && this.#corge.errors.isStaleWorkerEpochError(s.wfCtx.signal.reason)) {
       s.fencedError = s.wfCtx.signal.reason
       throw s.fencedError
     }
@@ -200,7 +200,7 @@ export class TaskStepsEngine {
     if (s.replayOnly) throw new ReplayCompleteSignal()
 
     if (s.canYield && s.wfCtx) {
-      const budgetMs = (s.wfCtx.deadlineMs - s.wfCtx.startedAt) * CORE_CONFIG.tasks.yieldBudgetRatio
+      const budgetMs = (s.wfCtx.deadlineMs - s.wfCtx.startedAt) * CORGE_CONFIG.tasks.yieldBudgetRatio
       if (budgetMs > 0 && Date.now() - s.wfCtx.startedAt > budgetMs) {
         await flushFn()
         throw new TaskYieldSignal('yield', { delaySeconds: 0 })
@@ -216,8 +216,8 @@ export class TaskStepsEngine {
           stepId,
           timeout,
           s.wfCtx?.signal,
-          this.#core.errors.parseDuration,
-          this.#core.errors.isNonRetryableError
+          this.#corge.errors.parseDuration,
+          this.#corge.errors.isNonRetryableError
         )
       : fn({ signal: s.wfCtx?.signal ?? new AbortController().signal, attempt: 1, stepId }))
 
@@ -227,7 +227,7 @@ export class TaskStepsEngine {
       try {
         await this.#persistSteps(s)
       } catch (err) {
-        if (this.#core.errors.isStaleWorkerEpochError(err)) {
+        if (this.#corge.errors.isStaleWorkerEpochError(err)) {
           delete s.steps[stepId]
           throw err
         }
@@ -262,7 +262,7 @@ export class TaskStepsEngine {
     }
 
     if (pendingIndices.length > 0) {
-      const concurrency = Math.max(1, options?.concurrency ?? CORE_CONFIG.tasks.defaultShardsCount)
+      const concurrency = Math.max(1, options?.concurrency ?? CORGE_CONFIG.tasks.defaultShardsCount)
       let cursor = 0
       const workers = Array.from({ length: Math.min(concurrency, pendingIndices.length) }, async () => {
         while (cursor < pendingIndices.length) {
@@ -311,11 +311,11 @@ export class TaskStepsEngine {
         return payload
       }
       const timeoutKey = `__signal_deadline:${stepId}`
-      const timeoutMs = options?.timeout ? this.#core.errors.parseDuration(options.timeout, 0) : 0
+      const timeoutMs = options?.timeout ? this.#corge.errors.parseDuration(options.timeout, 0) : 0
       const now = Date.now()
       const existingDeadline = typeof s.steps[timeoutKey] === 'number' ? (s.steps[timeoutKey] as number) : undefined
       if (existingDeadline && now >= existingDeadline) {
-        throw this.#core.errors.nonRetryableError(`Timed out waiting for signal "${signalName}"`, 'SIGNAL_TIMEOUT')
+        throw this.#corge.errors.nonRetryableError(`Timed out waiting for signal "${signalName}"`, 'SIGNAL_TIMEOUT')
       }
       if (!existingDeadline && timeoutMs > 0) {
         s.steps[timeoutKey] = now + timeoutMs
@@ -329,7 +329,7 @@ export class TaskStepsEngine {
         })
       }
     }
-    throw this.#core.errors.nonRetryableError(`Signal "${signalName}" not received`, 'SIGNAL_TIMEOUT')
+    throw this.#corge.errors.nonRetryableError(`Signal "${signalName}" not received`, 'SIGNAL_TIMEOUT')
   }
 
   #invokeChildStep = <I, O>(
@@ -364,7 +364,7 @@ export class TaskStepsEngine {
     this.#assertNotFenced(s)
     if (s.steps[stepId] === true) return
     if (s.replayOnly) throw new ReplayCompleteSignal()
-    const ms = Math.max(0, this.#core.errors.parseDuration(duration, 0))
+    const ms = Math.max(0, this.#corge.errors.parseDuration(duration, 0))
     if (!s.canYield || ms <= 2_000) {
       if (ms > 0) await new Promise((r) => setTimeout(r, ms))
       s.steps[stepId] = true
@@ -390,7 +390,7 @@ export class TaskStepsEngine {
         tx.set(ref, { progress: update, updatedAt: new Date().toISOString(), expiresAt: s.expiresAt }, { merge: true })
       })
       .catch((err) => {
-        if (this.#core.errors.isStaleWorkerEpochError(err)) throw err
+        if (this.#corge.errors.isStaleWorkerEpochError(err)) throw err
       })
     s.writes.push(p)
     await p
@@ -401,7 +401,7 @@ export class TaskStepsEngine {
     if (s.docRef && s.claimedEpoch !== undefined && s.writes.length === 0) await this.#persistSteps(s)
     const settled = await Promise.allSettled(s.writes)
     for (const item of settled) {
-      if (item.status === 'rejected' && this.#core.errors.isStaleWorkerEpochError(item.reason)) throw item.reason
+      if (item.status === 'rejected' && this.#corge.errors.isStaleWorkerEpochError(item.reason)) throw item.reason
     }
     this.#assertNotFenced(s)
     return settled
@@ -419,7 +419,7 @@ export class TaskStepsEngine {
       docRef,
       steps,
       expiresAt,
-      isDev: Boolean(runnerOpts?.isDev ?? this.#core.env.isDev),
+      isDev: Boolean(runnerOpts?.isDev ?? this.#corge.env.isDev),
       signals: runnerOpts?.signals ?? {},
       wfCtx: runnerOpts?.workflowContext,
       canYield: Boolean(runnerOpts?.canYield && docRef && expiresAt && mode === 'workflow'),

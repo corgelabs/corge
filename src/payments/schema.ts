@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { CORE_CONFIG, type EnvScopedString, type PaymentProvider, type PaymentsConfig } from '../config'
+import { CORGE_CONFIG, type EnvScopedString, type PaymentProvider, type PaymentsConfig } from '../config'
 import { entryId, type EntryId } from '../db'
 
 export type { EnvScopedString, PaymentProvider, PaymentsConfig }
@@ -79,7 +79,7 @@ export const registerPlans = (plans?: PlansMap, reset = false): void => {
     const quota = def.quota ?? def.quotas ?? {}
     registeredPlans[k] = { ...def, id: def.id ?? k, quota, quotas: quota }
   }
-  if (entries.length > 0) CORE_CONFIG.payments.enabled = true
+  if (entries.length > 0) CORGE_CONFIG.payments.enabled = true
 }
 
 export const registerProducts = (products?: ProductsMap, reset = false): void => {
@@ -91,13 +91,13 @@ export const registerProducts = (products?: ProductsMap, reset = false): void =>
   for (const [k, def] of entries) {
     registeredProducts[k] = { ...def, id: def.id ?? k }
   }
-  if (entries.length > 0) CORE_CONFIG.payments.enabled = true
+  if (entries.length > 0) CORGE_CONFIG.payments.enabled = true
 }
 
 export const clearPaymentDefinitions = (): void => {
   for (const k of Object.keys(registeredPlans)) delete registeredPlans[k]
   for (const k of Object.keys(registeredProducts)) delete registeredProducts[k]
-  CORE_CONFIG.payments.enabled = false
+  CORGE_CONFIG.payments.enabled = false
 }
 
 export const definePlans = <T extends PlansMap>(plans: T): T => {

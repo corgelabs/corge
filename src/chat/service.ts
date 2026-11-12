@@ -7,9 +7,9 @@ import {
   type ToolSet
 } from 'ai'
 import { registerAttachmentTypes } from '../attachments'
-import { CORE_CONFIG } from '../config'
+import { CORGE_CONFIG } from '../config'
 import type { EntryId } from '../db'
-import { Core } from '../index'
+import { Corge } from '../index'
 import { ChatContextEngine } from './context'
 import {
   ReasoningExpertInputDto,
@@ -41,14 +41,14 @@ const toolRegistry = new Map<string, WorkflowToolSpec>()
 const agentRegistry = new Map<string, AgentConfig>()
 
 export class ChatService {
-  readonly #core: Core
+  readonly #corge: Corge
   readonly #contextEngine: ChatContextEngine
   readonly #streamEngine: ChatStreamEngine
 
-  constructor(coreClient: Core) {
-    this.#core = coreClient
-    this.#contextEngine = new ChatContextEngine(coreClient)
-    this.#streamEngine = new ChatStreamEngine(coreClient, agentRegistry)
+  constructor(corgeClient: Corge) {
+    this.#corge = corgeClient
+    this.#contextEngine = new ChatContextEngine(corgeClient)
+    this.#streamEngine = new ChatStreamEngine(corgeClient, agentRegistry)
   }
 
   #registerWorkflowTool = (name: string, spec: WorkflowToolSpec): void => {
@@ -108,7 +108,7 @@ export class ChatService {
         try {
           const timeoutSignal = AbortSignal.timeout(20_000)
           const signal = abortSignal ? AbortSignal.any([abortSignal, timeoutSignal]) : timeoutSignal
-          const jinaKey = this.#core.env.JINA_API_KEY
+          const jinaKey = this.#corge.env.JINA_API_KEY
           const res = await fetch(`https://r.jina.ai/${target}`, {
             headers: {
               Accept: 'text/plain, text/markdown;q=0.9, */*;q=0.8',
@@ -140,11 +140,11 @@ export class ChatService {
         'Delegate complex architectural, legal, financial, or multi-constraint reasoning problems to a frontier reasoning model. Use only when standard analysis is insufficient.',
       inputSchema: ReasoningExpertInputDto,
       execute: async ({ problemStatement, constraintsAndContext }) => {
-        const result = await ctx.core.ai.generate(
+        const result = await ctx.corge.ai.generate(
           `Problem:\n${problemStatement}\n\nConstraints & Context:\n${constraintsAndContext}`,
           {
             schema: ReasoningExpertOutputDto,
-            model: CORE_CONFIG.models.vertexExpert ?? 'claude-sonnet-4-5',
+            model: CORGE_CONFIG.models.vertexExpert ?? 'claude-sonnet-4-5',
             signal: ctx.abortSignal
           }
         )
@@ -154,7 +154,7 @@ export class ChatService {
 
   #buildAgentToolsForTurn = (toolKeys: string[] = [], ctx: VerifiedAgentToolContext): ToolSet => {
     const tools: ToolSet = {}
-    const { core: turnCore, abortSignal } = ctx
+    const { corge: turnCore, abortSignal } = ctx
     const coreState = {
       env: turnCore.env,
       userId: turnCore.userId,
@@ -174,7 +174,7 @@ export class ChatService {
             description: wf.description,
             inputSchema: sanitizeToolInputSchema(wf.input),
             execute: (rawInput) =>
-              this.#core.internals.context.run(coreState, async () => {
+              this.#corge.internals.context.run(coreState, async () => {
                 const safeInput =
                   rawInput && typeof rawInput === 'object'
                     ? Object.fromEntries(
@@ -198,7 +198,7 @@ export class ChatService {
         ? await agent.systemPrompt({
             today: 'see dynamic context',
             userId: 'authenticated-user',
-            env: this.#core.env
+            env: this.#corge.env
           })
         : agent.systemPrompt
     return raw
@@ -225,19 +225,19 @@ export class ChatService {
   stream = async (
     agent: AgentConfig,
     messages: ModelMessage[],
-    userId: EntryId = this.#core.userId,
+    userId: EntryId = this.#corge.userId,
     opts?: RunAgentOptions
   ): Promise<ReturnType<typeof streamText>> => {
-    await this.#core.internals.payments.enforceAiQuota(userId)
+    await this.#corge.internals.payments.enforceAiQuota(userId)
     const [, staticCoreAgentInstructions] = await Promise.all([
-      this.#core.internals.resilience.acquireLimit('ai'),
+      this.#corge.internals.resilience.acquireLimit('ai'),
       this.#resolveStaticSystemPrompt(agent)
     ])
 
-    const role = opts?.core?.role ?? this.#core.internals.auth.resolveUserRole(userId, this.#core.role)
-    const verifiedCore = opts?.core ?? new Core({ env: this.#core.env, userId, role })
+    const role = opts?.corge?.role ?? this.#corge.internals.auth.resolveUserRole(userId, this.#corge.role)
+    const verifiedCore = opts?.corge ?? new Corge({ env: this.#corge.env, userId, role })
     const tools = this.#buildAgentToolsForTurn(agent.tools ?? [], {
-      core: verifiedCore,
+      corge: verifiedCore,
       chatId: opts?.chatId,
       abortSignal: opts?.abortSignal
     })
@@ -267,10 +267,10 @@ export class ChatService {
     ]
 
     const messagesForLlm: ModelMessage[] = messages.filter((m) => m.role !== 'system')
-    const selectedModel = opts?.modelOverride || agent.model || CORE_CONFIG.models.vertex
+    const selectedModel = opts?.modelOverride || agent.model || CORGE_CONFIG.models.vertex
 
     return streamText({
-      model: this.#core.ai.languageModel(selectedModel),
+      model: this.#corge.ai.languageModel(selectedModel),
       system: systemInstructions,
       messages: messagesForLlm,
       tools,
@@ -279,17 +279,17 @@ export class ChatService {
             activeTools: allToolNames,
             prepareStep: ({ stepNumber, messages: stepMessages }) => ({
               activeTools: this.#resolveStepActiveTools(agent, allToolNames, stepNumber),
-              ...(stepNumber > 2 && stepMessages.length > CORE_CONFIG.limits.chatMessagesLimit
-                ? { messages: stepMessages.slice(-CORE_CONFIG.limits.chatMessagesLimit) }
+              ...(stepNumber > 2 && stepMessages.length > CORGE_CONFIG.limits.chatMessagesLimit
+                ? { messages: stepMessages.slice(-CORGE_CONFIG.limits.chatMessagesLimit) }
                 : {})
             })
           }
         : {}),
-      stopWhen: stepCountIs(agent.maxSteps ?? CORE_CONFIG.models.defaultAgentMaxSteps),
+      stopWhen: stepCountIs(agent.maxSteps ?? CORGE_CONFIG.models.defaultAgentMaxSteps),
       ...(opts?.abortSignal ? { abortSignal: opts.abortSignal } : {}),
       onFinish: async (event) => {
         const usageObj = (event as { totalUsage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number }; usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number } }).totalUsage ?? event.usage
-        await this.#core.internals.payments.trackAiUsage({
+        await this.#corge.internals.payments.trackAiUsage({
           userId,
           model: selectedModel,
           inputTokens: usageObj?.inputTokens ?? 0,
@@ -308,9 +308,9 @@ export class ChatService {
     options?: AskAgentOptions
   ): Promise<{ text: string; messages: ModelMessage[] }> => {
     const agent = typeof agentOrId === 'string' ? agentRegistry.get(agentOrId) : agentOrId
-    if (!agent) return this.#core.errors.httpError(404, `Unknown agent: ${String(agentOrId)}`, 'NOT_FOUND')
+    if (!agent) return this.#corge.errors.httpError(404, `Unknown agent: ${String(agentOrId)}`, 'NOT_FOUND')
 
-    const userId = options?.userId ?? this.#core.userId ?? CORE_CONFIG.auth.adminUserId
+    const userId = options?.userId ?? this.#corge.userId ?? CORGE_CONFIG.auth.adminUserId
     const rawMessages: ModelMessage[] =
       typeof prompt === 'string' ? [{ role: 'user', content: [{ type: 'text', text: prompt }] }] : [...prompt]
     const latestPrompt = typeof prompt === 'string' ? prompt : extractLatestUserPrompt(rawMessages)

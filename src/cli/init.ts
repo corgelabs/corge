@@ -78,7 +78,7 @@ export const initConsumerProject = (cwd = process.cwd()): void => {
         extends: '@corgelabs/corge/tsconfig.base.json',
         compilerOptions: {
           paths: {
-            '@core': ['./node_modules/@corgelabs/corge/dist/index.d.ts'],
+            '@corge': ['./node_modules/@corgelabs/corge/dist/index.d.ts'],
             '@routes/*': ['./src/routes/*'],
             '@services/*': ['./src/services/*'],
             '@utils/*': ['./src/utils/*'],
@@ -95,9 +95,9 @@ export const initConsumerProject = (cwd = process.cwd()): void => {
   writeIfMissing(
     'src/index.ts',
     [
-      "import { core } from '@core'",
+      "import { corge } from '@corgelabs/corge'",
       '',
-      'export const coreApp = core.createApp({})',
+      'export const corgeApp = corge.createApp({})',
       '',
       'export const {',
       '  createApp,',
@@ -109,7 +109,7 @@ export const initConsumerProject = (cwd = process.cwd()): void => {
       '  tasksHandler,',
       '  devTasksHandler,',
       '  functions',
-      '} = coreApp',
+      '} = corgeApp',
       ''
     ].join('\n')
   )

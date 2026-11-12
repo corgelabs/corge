@@ -1,5 +1,5 @@
 import type { DbListOptions, EntryId, PaginatedList, SelectModel } from '../db'
-import type { Core } from '../index'
+import type { Corge } from '../index'
 import {
   getEmailTemplate,
   sendEmailInputSchema,
@@ -32,17 +32,17 @@ import {
 } from './utils'
 
 export class EmailsService {
-  readonly #core: Core
+  readonly #corge: Corge
   readonly #devEmailOutbox = new Map<string, TransactionalEmailPayload>()
 
-  constructor(coreClient: Core) {
-    this.#core = coreClient
+  constructor(corgeClient: Corge) {
+    this.#corge = corgeClient
   }
 
   #resolveProvider = (override?: EmailProvider): EmailProvider | 'dev' => {
-    const preferred = override ?? this.#core.config.emails.provider
-    const hasResend = Boolean(this.#core.env.RESEND_API_KEY?.trim())
-    const hasSendGrid = Boolean(this.#core.env.SENDGRID_API_KEY?.trim())
+    const preferred = override ?? this.#corge.config.emails.provider
+    const hasResend = Boolean(this.#corge.env.RESEND_API_KEY?.trim())
+    const hasSendGrid = Boolean(this.#corge.env.SENDGRID_API_KEY?.trim())
     if (preferred === 'sendgrid') {
       if (hasSendGrid) return 'sendgrid'
       if (!override && hasResend) return 'resend'
@@ -50,9 +50,9 @@ export class EmailsService {
       if (hasResend) return 'resend'
       if (!override && hasSendGrid) return 'sendgrid'
     } else if (preferred === 'firebase') {
-      return this.#core.env.isDev && !this.#core.env.WEB_API_KEY ? 'dev' : 'firebase'
+      return this.#corge.env.isDev && !this.#corge.env.WEB_API_KEY ? 'dev' : 'firebase'
     }
-    return this.#core.env.isDev ? 'dev' : 'firebase'
+    return this.#corge.env.isDev ? 'dev' : 'firebase'
   }
 
   #resolveAttachments = async (attachments?: EmailAttachmentInput[]): Promise<ResolvedAttachment[]> =>
@@ -66,7 +66,7 @@ export class EmailsService {
                 contentType: att.contentType ?? 'application/octet-stream'
               }
             }
-            const { bytes, type } = await this.#core.files.get(att.fileRef!)
+            const { bytes, type } = await this.#corge.files.get(att.fileRef!)
             return {
               filename: att.filename,
               contentBase64: Buffer.from(bytes).toString('base64'),
@@ -77,38 +77,38 @@ export class EmailsService {
       : []
 
   #withEmailBreaker = async <T>(cost: number, fn: () => Promise<T>): Promise<T> => {
-    await this.#core.internals.resilience.acquireLimit('emails', cost)
-    return this.#core.internals.resilience.circuitBreaker('emails', fn)
+    await this.#corge.internals.resilience.acquireLimit('emails', cost)
+    return this.#corge.internals.resilience.circuitBreaker('emails', fn)
   }
 
   #sendViaSendGrid = (req: NormalizedEmailRequest): Promise<{ externalId: string }> =>
     this.#withEmailBreaker(1, () =>
-      postSendGridMail(this.#core.config.emails.sendgrid.baseUrl, this.#core.env.SENDGRID_API_KEY, req)
+      postSendGridMail(this.#corge.config.emails.sendgrid.baseUrl, this.#corge.env.SENDGRID_API_KEY, req)
     )
 
   #sendViaResend = (req: NormalizedEmailRequest): Promise<{ externalId: string }> =>
     this.#withEmailBreaker(1, () =>
-      postResendEmail(this.#core.config.emails.resend.baseUrl, this.#core.env.RESEND_API_KEY, req)
+      postResendEmail(this.#corge.config.emails.resend.baseUrl, this.#corge.env.RESEND_API_KEY, req)
     )
 
   #sendBatchViaResend = (reqs: NormalizedEmailRequest[]): Promise<{ externalIds: string[] }> =>
     this.#withEmailBreaker(reqs.length, () =>
-      postResendBatch(this.#core.config.emails.resend.baseUrl, this.#core.env.RESEND_API_KEY, reqs)
+      postResendBatch(this.#corge.config.emails.resend.baseUrl, this.#corge.env.RESEND_API_KEY, reqs)
     )
 
   #sendFirebaseOobEmail = async (payload: TransactionalEmailPayload): Promise<void> => {
-    const apiKey = this.#core.env.WEB_API_KEY
+    const apiKey = this.#corge.env.WEB_API_KEY
     if (!apiKey) return
     try {
       const customToken =
         payload.purpose === 'verify_email'
-          ? (await this.#core.internals.auth.mintCustomToken(payload.userId)).customToken
+          ? (await this.#corge.internals.auth.mintCustomToken(payload.userId)).customToken
           : undefined
       await postFirebaseOobCode(
         apiKey,
         customToken,
         payload,
-        this.#core.config.emails.actionBaseUrl || 'http://localhost'
+        this.#corge.config.emails.actionBaseUrl || 'http://localhost'
       )
     } catch {}
   }
@@ -122,7 +122,7 @@ export class EmailsService {
     const toList = (Array.isArray(parsed.to) ? parsed.to : [parsed.to]).map(normalizeEmail)
     const tmpl = parsed.template ? getEmailTemplate(parsed.template) : undefined
     if (parsed.template && !tmpl && !parsed.providerTemplateId && !parsed.html && !parsed.text) {
-      return this.#core.errors.httpError(400, `Unregistered email template: ${parsed.template}`, 'INVALID_TEMPLATE')
+      return this.#corge.errors.httpError(400, `Unregistered email template: ${parsed.template}`, 'INVALID_TEMPLATE')
     }
 
     let vars: Record<string, unknown> = { ...(parsed.variables ?? {}) }
@@ -130,7 +130,7 @@ export class EmailsService {
     const emailId = parsed.idempotencyKey
       ? idempotencyEmailDocId(parsed.idempotencyKey)
       : `em_${crypto.randomUUID().replace(/-/g, '').slice(0, 24)}`
-    const emailsCfg = this.#core.config.emails
+    const emailsCfg = this.#corge.config.emails
 
     if (tmpl?.onBeforeSend) {
       const hookResult = await tmpl.onBeforeSend(vars, toList[0]!)
@@ -151,7 +151,7 @@ export class EmailsService {
     }
 
     const attachments = await this.#resolveAttachments(parsed.attachments)
-    const userId = opts?.userId ?? (this.#core.userId || undefined)
+    const userId = opts?.userId ?? (this.#corge.userId || undefined)
     return {
       cancelled: false,
       req: buildNormalizedEmailRequest(emailId, toList, parsed, tmpl, provider, vars, emailsCfg, attachments, userId)
@@ -166,7 +166,7 @@ export class EmailsService {
     errorMessage?: string
   ): Promise<SendEmailResult> => {
     const template = req.template ?? req.providerTemplateId
-    await this.#core.db.create(
+    await this.#corge.db.create(
       'email_log',
       {
         id: req.emailId,
@@ -188,24 +188,24 @@ export class EmailsService {
   }
 
   isSuppressed = async (email: string): Promise<boolean> =>
-    Boolean(await this.#core.db.read('email_suppression', suppressionDocId(email), false, { bypassRbac: true }))
+    Boolean(await this.#corge.db.read('email_suppression', suppressionDocId(email), false, { bypassRbac: true }))
 
   #isRecipientListSuppressed = async (recipients: string[]): Promise<boolean> =>
-    this.#core.config.emails.enforceSuppressionList
+    this.#corge.config.emails.enforceSuppressionList
       ? (await Promise.all(recipients.map((addr) => this.isSuppressed(addr)))).some(Boolean)
       : false
 
   getLog = async (emailId: EntryId): Promise<SelectModel<'email_log'> | undefined> =>
-    this.#core.db.read('email_log', emailId, false, { bypassRbac: true })
+    this.#corge.db.read('email_log', emailId, false, { bypassRbac: true })
 
   listLogs = async (
     options?: DbListOptions<SelectModel<'email_log'>>
   ): Promise<PaginatedList<SelectModel<'email_log'>>> =>
-    this.#core.db.list('email_log', options, { bypassRbac: true })
+    this.#corge.db.list('email_log', options, { bypassRbac: true })
 
   #checkExistingIdempotentEmail = async (idempotencyKey?: string): Promise<SendEmailResult | undefined> => {
     if (!idempotencyKey) return undefined
-    const existing = await this.#core.db.read('email_log', idempotencyEmailDocId(idempotencyKey), false, { bypassRbac: true })
+    const existing = await this.#corge.db.read('email_log', idempotencyEmailDocId(idempotencyKey), false, { bypassRbac: true })
     if (!existing || existing.status === 'failed') return undefined
     return {
       emailId: existing.id,
@@ -243,7 +243,7 @@ export class EmailsService {
 
   send = async <T = Record<string, unknown>>(input: SendEmailInput<T>, opts?: EmailCallOptions): Promise<SendEmailResult> =>
     input.idempotencyKey
-      ? this.#core.internals.resilience.singleflight(
+      ? this.#corge.internals.resilience.singleflight(
           `email_send:${idempotencyEmailDocId(input.idempotencyKey)}`,
           () => this.#sendOnce(input, opts),
           { scope: 'global' }
@@ -297,8 +297,8 @@ export class EmailsService {
         purpose,
         code: vars?.code ?? '',
         token: vars?.token ?? '',
-        expiresInMinutes: vars?.expiresInMinutes ?? this.#core.config.emails.otpTtlMinutes,
-        userId: vars?.userId ?? this.#core.userId
+        expiresInMinutes: vars?.expiresInMinutes ?? this.#corge.config.emails.otpTtlMinutes,
+        userId: vars?.userId ?? this.#corge.userId
       },
       vars,
       opts
@@ -311,12 +311,12 @@ export class EmailsService {
     initialVars: AuthEmailVariables,
     purpose: AuthEmailPurpose
   ): Promise<AuthEmailVariables | false> => {
-    const emailsCfg = this.#core.config.emails
+    const emailsCfg = this.#corge.config.emails
     const flowCfg = emailsCfg.authFlows[purpose]
     let authVars = initialVars
     for (const hook of [emailsCfg.onAuthEmail, flowCfg?.onSend]) {
       if (!hook) continue
-      const hookOut = await hook(authVars, { core: this.#core, env: this.#core.env })
+      const hookOut = await hook(authVars, { corge: this.#corge, env: this.#corge.env })
       if (hookOut === false) return false
       if (hookOut && typeof hookOut === 'object') authVars = { ...authVars, ...hookOut }
     }
@@ -330,7 +330,7 @@ export class EmailsService {
   ): Promise<SendEmailResult> => {
     const normalizedTo = normalizeEmail(payload.to)
     const normalizedPayload: TransactionalEmailPayload = { ...payload, to: normalizedTo }
-    if (this.#core.env.isDev || !process.env.K_SERVICE) {
+    if (this.#corge.env.isDev || !process.env.K_SERVICE) {
       const outboxKey = `${payload.purpose}:${normalizedTo}`
       if (!this.#devEmailOutbox.has(outboxKey) && this.#devEmailOutbox.size >= 500) {
         this.#devEmailOutbox.delete(this.#devEmailOutbox.keys().next().value!)
@@ -338,12 +338,12 @@ export class EmailsService {
       this.#devEmailOutbox.set(outboxKey, normalizedPayload)
     }
 
-    const emailsCfg = this.#core.config.emails
+    const emailsCfg = this.#corge.config.emails
     const flowCfg = emailsCfg.authFlows[payload.purpose]
     const actionUrl = buildAuthActionUrl(emailsCfg.actionBaseUrl, flowCfg?.actionPath ?? '/', normalizedPayload)
     const authVars = await this.#runAuthFlowHooks(
       {
-        appName: this.#core.config.appName || emailsCfg.fromName || 'App',
+        appName: this.#corge.config.appName || emailsCfg.fromName || 'App',
         userId: payload.userId,
         email: normalizedTo,
         purpose: payload.purpose,
@@ -375,7 +375,7 @@ export class EmailsService {
     }
 
     const provider = this.#resolveProvider(opts?.provider)
-    if (provider === 'sendgrid' || provider === 'resend' || this.#core.env.isDev) {
+    if (provider === 'sendgrid' || provider === 'resend' || this.#corge.env.isDev) {
       return this.send(
         {
           to: normalizedTo,
@@ -417,8 +417,8 @@ export class EmailsService {
     if ((status === 'bounced' || status === 'complained') && normRecipient) {
       const supId = suppressionDocId(normRecipient)
       const now = new Date()
-      await this.#core.internals.resilience.acquireLimit('firestore')
-      await this.#core.db.firestore().collection('email_suppression').doc(supId).set(
+      await this.#corge.internals.resilience.acquireLimit('firestore')
+      await this.#corge.db.firestore().collection('email_suppression').doc(supId).set(
         {
           id: supId,
           email: normRecipient,
@@ -445,7 +445,7 @@ export class EmailsService {
       ...(status === 'delivered' ? { deliveredAt: nowIso } : {}),
       ...(status === 'bounced' || status === 'complained' ? { bouncedAt: nowIso } : {})
     }
-    await Promise.all(logs.map((log) => this.#core.db.update('email_log', log.id, patch, { bypassRbac: true })))
+    await Promise.all(logs.map((log) => this.#corge.db.update('email_log', log.id, patch, { bypassRbac: true })))
   }
 
   #verifyAndProcessWebhook = async (
@@ -454,23 +454,23 @@ export class EmailsService {
     headers: Record<string, string | undefined>
   ): Promise<{ received: true; processed: number }> => {
     const secret =
-      this.#core.env.isDev && this.#core.env.EMAIL_SANDBOX_WEBHOOK_SECRET
-        ? this.#core.env.EMAIL_SANDBOX_WEBHOOK_SECRET
-        : this.#core.env.EMAIL_WEBHOOK_SECRET || this.#core.env.EMAIL_SANDBOX_WEBHOOK_SECRET
+      this.#corge.env.isDev && this.#corge.env.EMAIL_SANDBOX_WEBHOOK_SECRET
+        ? this.#corge.env.EMAIL_SANDBOX_WEBHOOK_SECRET
+        : this.#corge.env.EMAIL_WEBHOOK_SECRET || this.#corge.env.EMAIL_SANDBOX_WEBHOOK_SECRET
     try {
       const parsed = parseAndVerifyEmailWebhook(
         provider,
         rawBody,
         headers,
         secret,
-        this.#core.config.emails.webhookToleranceSeconds
+        this.#corge.config.emails.webhookToleranceSeconds
       )
       for (const u of parsed.updates) {
         await this.#applyWebhookStatus(provider, u.externalId, u.recipient, u.status, u.rawEvent)
       }
       return { received: true, processed: parsed.processed }
     } catch (err) {
-      return this.#core.errors.httpError(
+      return this.#corge.errors.httpError(
         401,
         err instanceof Error ? err.message : `Invalid ${provider} webhook signature`,
         'INVALID_WEBHOOK_SIGNATURE'

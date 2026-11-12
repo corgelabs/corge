@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { CORE_CONFIG } from '../config'
+import { CORGE_CONFIG } from '../config'
 
 export type Duration = number | `${number}${'ms' | 's' | 'm' | 'h' | 'd'}`
 
@@ -53,7 +53,7 @@ export interface SingleflightOptions {
   scope?: 'tenant' | 'global'
 }
 
-export const LIMITS = CORE_CONFIG.limits.buckets
+export const LIMITS = CORGE_CONFIG.limits.buckets
 export type Bucket = keyof typeof LIMITS
 
 /** Built-in provider breakers plus any app-defined key (`[a-z0-9-]` recommended; used in a Firestore doc ID). */

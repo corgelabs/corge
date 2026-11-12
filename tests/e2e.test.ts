@@ -9,15 +9,15 @@ import { serve, type ServerType } from '@hono/node-server'
 import { z } from 'zod'
 import { agents } from '@config/agents'
 import { routes as customRoutes } from '@config/routes'
-import { Core, core, loadGcpSecrets, useCore } from '@core'
+import { Corge, corge, loadGcpSecrets, useCorge } from '@corgelabs/corge'
 import { devApp } from '@app-entry'
 
-type AttachmentTypesMap = core.types.AttachmentTypesMap
+type AttachmentTypesMap = corge.types.AttachmentTypesMap
 type RouteConfig<I = any, O = any, P = Record<string, string>, Q = Record<string, string>> =
-  core.types.RouteConfig<I, O, P, Q>
-type RoutesIntrospectionResponse = core.types.RoutesIntrospectionResponse
-const CORE_CONFIG = core.config
-const defineCollection = core.define.collection
+  corge.types.RouteConfig<I, O, P, Q>
+type RoutesIntrospectionResponse = corge.types.RoutesIntrospectionResponse
+const CORGE_CONFIG = corge.config
+const defineCollection = corge.define.collection
 
 EventEmitter.defaultMaxListeners = 100
 
@@ -28,7 +28,7 @@ const PORT = 8791
 const BASE_URL = (EXPLICIT_BASE_URL ?? `http://localhost:${PORT}`).replace(/\/+$/, '')
 const SPAWN_LOCAL = !EXPLICIT_BASE_URL
 
-const ENV = core.env
+const ENV = corge.env
 const API_KEY = ENV.SDK_API_KEY
 const WEB_API_KEY = ENV.WEB_API_KEY
 
@@ -41,7 +41,7 @@ const ACTIVE_ATTACHMENT_TYPES: AttachmentTypesMap = (() => {
   for (const ag of Object.values(agents)) {
     if (ag.attachmentTypes) Object.assign(fromAgents, ag.attachmentTypes)
   }
-  return Object.keys(fromAgents).length ? fromAgents : core.internals.registry.getAttachmentTypes()
+  return Object.keys(fromAgents).length ? fromAgents : corge.internals.registry.getAttachmentTypes()
 })()
 
 interface GeneratedFixture {
@@ -400,7 +400,7 @@ before(async () => {
     if (!ready) throw new Error('Local server failed to become ready in time')
   }
 
-  const existingUsers = await core.auth.listUsers(true).catch(() => [])
+  const existingUsers = await corge.auth.listUsers(true).catch(() => [])
   for (const u of existingUsers) {
     if (u.email?.endsWith('@test.local')) {
       await fetch(`${BASE_URL}/api/erase-user`, {
@@ -438,7 +438,7 @@ describe('1. Auth & RBAC (/api/auth/*, /api/routes)', () => {
     const healthData = (await healthRes.json()) as { ok: boolean; status: string; service: string }
     assert.equal(healthData.ok, true)
     assert.equal(healthData.status, 'healthy')
-    assert.equal(healthData.service, CORE_CONFIG.appName)
+    assert.equal(healthData.service, CORGE_CONFIG.appName)
 
     const unauthRoutesRes = await apiFetch('/api/routes', {}, 'unauth')
     assert.equal(unauthRoutesRes.status, 401)
@@ -459,7 +459,7 @@ describe('1. Auth & RBAC (/api/auth/*, /api/routes)', () => {
     assert.equal(adminSessionRes.status, 200)
     assert.notEqual(adminSessionRes.headers.get('x-auth-time-ms'), null)
     assert.ok((adminSessionRes.headers.get('server-timing') ?? '').includes('auth;dur='))
-    assert.deepEqual(await adminSessionRes.json(), { userId: CORE_CONFIG.auth.adminUserId })
+    assert.deepEqual(await adminSessionRes.json(), { userId: CORGE_CONFIG.auth.adminUserId })
 
     const adminWarmRes = await apiFetch('/api/routes', { headers: bearerHeaders() }, 'admin-warm')
     assert.equal(adminWarmRes.status, 200)
@@ -490,7 +490,7 @@ describe('1. Auth & RBAC (/api/auth/*, /api/routes)', () => {
     assert.equal(signedInUser.id, testAuthUserId)
     const signInCookies = signInRes.headers.getSetCookie?.() ?? [signInRes.headers.get('set-cookie') ?? '']
     initialEmailCookie = signInCookies.map((c) => c.split(';')[0]).filter(Boolean).join('; ')
-    assert.ok(initialEmailCookie.includes(`${core.internals.auth.sessionCookie}=`))
+    assert.ok(initialEmailCookie.includes(`${corge.internals.auth.sessionCookie}=`))
   })
 
   test('POST /api/auth/users/block — block user, verify 401 on session, then unblock', async () => {
@@ -615,7 +615,7 @@ describe('1. Auth & RBAC (/api/auth/*, /api/routes)', () => {
 
     const setCookies = sessionRes.headers.getSetCookie?.() ?? [sessionRes.headers.get('set-cookie') ?? '']
     testAuthCookie = setCookies.map((c) => c.split(';')[0]).filter(Boolean).join('; ')
-    assert.ok(testAuthCookie.includes(`${core.internals.auth.sessionCookie}=`))
+    assert.ok(testAuthCookie.includes(`${corge.internals.auth.sessionCookie}=`))
 
     const getSessionRes = await apiFetch('/api/auth/session', { headers: userHeaders() }, 'cookie-strict')
     assert.equal(getSessionRes.status, 200)
@@ -652,14 +652,14 @@ describe('1. Auth & RBAC (/api/auth/*, /api/routes)', () => {
     assert.equal(sendVerifyRes.status, 200)
     assert.equal(sendVerifyRes.data.sent, true)
 
-    const verifyPayload1 = core.internals.auth.getLastDevEmail(testEmail, 'verify_email')
+    const verifyPayload1 = corge.internals.auth.getLastDevEmail(testEmail, 'verify_email')
     assert.ok(verifyPayload1, 'Expected dev email outbox to capture verify_email payload')
     assert.match(verifyPayload1.code, /^\d{6}$/)
 
-    const rawTokenSnap = await core.db.firestore(true).collection('auth_tokens').doc(`${testAuthUserId}_verify_email`).get()
+    const rawTokenSnap = await corge.db.firestore(true).collection('auth_tokens').doc(`${testAuthUserId}_verify_email`).get()
     assert.equal(rawTokenSnap.exists, true)
     const rawTokenData = rawTokenSnap.data()!
-    assert.equal(rawTokenData.tokenHash, core.internals.auth.hashToken(verifyPayload1.code))
+    assert.equal(rawTokenData.tokenHash, corge.internals.auth.hashToken(verifyPayload1.code))
     assert.notEqual(rawTokenData.tokenHash, verifyPayload1.code)
     assert.equal('code' in rawTokenData, false)
 
@@ -704,7 +704,7 @@ describe('1. Auth & RBAC (/api/auth/*, /api/routes)', () => {
       'send-verify-2'
     )
     assert.equal(resendVerifyRes.status, 200)
-    const verifyPayload2 = core.internals.auth.getLastDevEmail(testEmail, 'verify_email')!
+    const verifyPayload2 = corge.internals.auth.getLastDevEmail(testEmail, 'verify_email')!
 
     const okVerifyRes = await apiJson<{ verified: boolean; userId: string }>(
       '/api/auth/email/verify',
@@ -720,13 +720,13 @@ describe('1. Auth & RBAC (/api/auth/*, /api/routes)', () => {
     assert.equal(okVerifyRes.data.verified, true)
     assert.equal(okVerifyRes.data.userId, testAuthUserId)
 
-    const verifiedUser = await core.auth.getUser(testAuthUserId)
+    const verifiedUser = await corge.auth.getUser(testAuthUserId)
     assert.equal(verifiedUser?.emailVerified, true)
 
     // 2. Social OAuth (Google & Apple) — OIDC signature verification, nonce check, account linking & Apple first-time name
     const { publicKey, privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
     const pubJwk = { ...(publicKey.export({ format: 'jwk' }) as JsonWebKey), kid: 'test-oidc-key' }
-    core.internals.auth.registerTestOidcPublicKey(pubJwk)
+    corge.internals.auth.registerTestOidcPublicKey(pubJwk)
 
     const signTestJwt = (claims: Record<string, unknown>) => {
       const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT', kid: 'test-oidc-key' })).toString(
@@ -849,7 +849,7 @@ describe('1. Auth & RBAC (/api/auth/*, /api/routes)', () => {
       assert.equal(appleUser2.id, appleCreatedUserId)
       assert.equal(appleUser2.name, 'Apple First-Auth Name')
     } finally {
-      core.internals.auth.registerTestOidcPublicKey(null)
+      corge.internals.auth.registerTestOidcPublicKey(null)
       if (appleCreatedUserId) {
         await apiFetch(
           '/api/erase-user',
@@ -894,7 +894,7 @@ describe('1. Auth & RBAC (/api/auth/*, /api/routes)', () => {
     assert.equal(setRecoveryRes.data.recoveryEmail, recoveryEmail)
     assert.equal(setRecoveryRes.data.recoveryEmailVerified, false)
 
-    const recoveryVerifyPayload = core.internals.auth.getLastDevEmail(recoveryEmail, 'verify_recovery_email')
+    const recoveryVerifyPayload = corge.internals.auth.getLastDevEmail(recoveryEmail, 'verify_recovery_email')
     assert.ok(recoveryVerifyPayload)
 
     const verifyRecoveryRes = await apiJson<{
@@ -939,7 +939,7 @@ describe('1. Auth & RBAC (/api/auth/*, /api/routes)', () => {
       'forgot-password'
     )
     assert.equal(forgotRes.status, 200)
-    const resetPayload = core.internals.auth.getLastDevEmail(testEmail, 'reset_password')
+    const resetPayload = corge.internals.auth.getLastDevEmail(testEmail, 'reset_password')
     assert.ok(resetPayload)
 
     const resetPasswordVal = 'ResetPassword456!'
@@ -982,7 +982,7 @@ describe('1. Auth & RBAC (/api/auth/*, /api/routes)', () => {
     assert.equal(initiateRecoveryRes.status, 200)
     assert.equal(initiateRecoveryRes.data.initiated, true)
 
-    const accountRecoveryPayload = core.internals.auth.getLastDevEmail(recoveryEmail, 'account_recovery')
+    const accountRecoveryPayload = corge.internals.auth.getLastDevEmail(recoveryEmail, 'account_recovery')
     assert.ok(accountRecoveryPayload)
 
     const recoveredPrimaryEmail = `recovered-${Date.now()}@test.local`
@@ -1014,7 +1014,7 @@ describe('1. Auth & RBAC (/api/auth/*, /api/routes)', () => {
     const recoveryCookies =
       completeRecoveryRes.headers.getSetCookie?.() ?? [completeRecoveryRes.headers.get('set-cookie') ?? '']
     testAuthCookie = recoveryCookies.map((c) => c.split(';')[0]).filter(Boolean).join('; ')
-    assert.ok(testAuthCookie.includes(`${core.internals.auth.sessionCookie}=`))
+    assert.ok(testAuthCookie.includes(`${corge.internals.auth.sessionCookie}=`))
 
     const postRecoverySessionRes = await apiFetch(
       '/api/auth/session',
@@ -1095,7 +1095,7 @@ describe('2. Files CRUD (/api/files, /api/files/:ref)', () => {
     assert.ok(signedData.url.startsWith('https://storage.googleapis.com/'))
     assert.ok(Date.parse(signedData.expiresAt) > Date.now())
 
-    const userCore = new Core({ env: ENV, userId: testAuthUserId, role: 'user' })
+    const userCore = new Corge({ env: ENV, userId: testAuthUserId, role: 'user' })
     const signedUp = await userCore.files.getSignedUploadUrl({
       name: 'direct-upload.pdf',
       type: 'application/pdf',
@@ -1152,7 +1152,7 @@ describe('2. Files CRUD (/api/files, /api/files/:ref)', () => {
 })
 
 describe('3. Route Catalog & Attachment Scanning (/api/routes, /api/scan-attachment)', () => {
-  test('GET /api/routes & GET /api/routes?format=md — verify all core/domain routes & deterministic API_CONTRACT.md introspection', async () => {
+  test('GET /api/routes & GET /api/routes?format=md — verify all corge/domain routes & deterministic API_CONTRACT.md introspection', async () => {
     const catalogRes = await apiJson<RoutesIntrospectionResponse | DiscoveredRouteItem[]>('/api/routes', {}, true)
     assert.equal(catalogRes.status, 200)
 
@@ -1160,7 +1160,7 @@ describe('3. Route Catalog & Attachment Scanning (/api/routes, /api/scan-attachm
       ? catalogRes.data
       : (catalogRes.data.routes as DiscoveredRouteItem[])
     if (!Array.isArray(catalogRes.data)) {
-      assert.equal(catalogRes.data.appName, CORE_CONFIG.appName)
+      assert.equal(catalogRes.data.appName, CORGE_CONFIG.appName)
       assert.ok(catalogRes.data.collections && 'chat' in catalogRes.data.collections)
       assert.ok('user_auth_meta' in catalogRes.data.collections!)
       assert.ok('auth_tokens' in catalogRes.data.collections!)
@@ -1169,11 +1169,11 @@ describe('3. Route Catalog & Attachment Scanning (/api/routes, /api/scan-attachm
     }
 
     const registeredIds = new Set(routeList.map((r) => r.id))
-    for (const coreId of Object.keys(core.internals.context.routeDefaults)) {
-      assert.ok(registeredIds.has(coreId), `Expected core route ${coreId} in GET /api/routes`)
+    for (const coreId of Object.keys(corge.internals.context.routeDefaults)) {
+      assert.ok(registeredIds.has(coreId), `Expected corge route ${coreId} in GET /api/routes`)
     }
 
-    discoveredDomainRoutes = routeList.filter((r) => !(r.id in core.internals.context.routeDefaults))
+    discoveredDomainRoutes = routeList.filter((r) => !(r.id in corge.internals.context.routeDefaults))
     assert.equal(discoveredDomainRoutes.length, Object.keys(customRoutes).length)
 
     // Verify deterministic Markdown rendering (GET /api/routes?format=md)
@@ -1181,7 +1181,7 @@ describe('3. Route Catalog & Attachment Scanning (/api/routes, /api/scan-attachm
     assert.equal(mdRes.status, 200)
     assert.ok((mdRes.headers.get('content-type') ?? '').includes('text/markdown'))
     const mdText = await mdRes.text()
-    assert.ok(mdText.includes(`# API Contract & Schema Reference — ${CORE_CONFIG.appName}`))
+    assert.ok(mdText.includes(`# API Contract & Schema Reference — ${CORGE_CONFIG.appName}`))
     assert.ok(mdText.includes('POST /api/auth/sign-in/social'))
     assert.ok(mdText.includes('POST /api/auth/email/send-verification'))
     assert.ok(mdText.includes('POST /api/auth/email/verify'))
@@ -1482,7 +1482,7 @@ describe('6. MCP Server (/api/mcp Streamable HTTP JSON-RPC)', () => {
       capabilities: {},
       clientInfo: { name: 'ai-sdk-e2e', version: '1.0.0' }
     })
-    assert.equal(initResult.serverInfo.name, CORE_CONFIG.appName)
+    assert.equal(initResult.serverInfo.name, CORGE_CONFIG.appName)
     assert.notEqual(initResult.capabilities.tools, undefined)
 
     const toolsList = await mcpCall<{ tools: { name: string; description: string; inputSchema: unknown }[] }>(
@@ -1872,7 +1872,7 @@ describe('8. OpenAI-Compatible Endpoints (/api/v1/models, /api/v1/chat/completio
   })
 })
 
-describe('9. Core SDK Primitives, Sign-Out, GDPR Erase & Zero-Leftover Verification', () => {
+describe('9. Corge SDK Primitives, Sign-Out, GDPR Erase & Zero-Leftover Verification', () => {
   test('Step runner durable replay checkpointing & per-step rollback', async () => {
     const steps: Record<string, unknown> = {}
     let ocrRuns = 0
@@ -1880,7 +1880,7 @@ describe('9. Core SDK Primitives, Sign-Out, GDPR Erase & Zero-Leftover Verificat
     let extractRuns = 0
     let rolledBackStep = ''
     const runPipeline = async (failExtract: boolean) => {
-      const step = core.internals.workflows.createStepRunner('rest', undefined, steps)
+      const step = corge.internals.workflows.createStepRunner('rest', undefined, steps)
       try {
         const ocr = await step('ocr', async () => (++ocrRuns, 'OCR_TEXT'))
         const classify = await step('classify', async () => (++classifyRuns, { type: 'passport', ocr }))
@@ -1919,7 +1919,7 @@ describe('9. Core SDK Primitives, Sign-Out, GDPR Erase & Zero-Leftover Verificat
     let rolledBackLegB = ''
     await assert.rejects(
       () =>
-        core.internals.workflows.allWithRollback([
+        corge.internals.workflows.allWithRollback([
           {
             fn: async () => 'legA-committed',
             rollback: async (val) => {
@@ -1945,7 +1945,7 @@ describe('9. Core SDK Primitives, Sign-Out, GDPR Erase & Zero-Leftover Verificat
   })
 
   test('Universal Auth-User Collection Connector (1:1 & M:N), updateEntry validation, cursor pagination & cascadeEraseUserCollections', async () => {
-    core.internals.registry.registerCollections({
+    corge.internals.registry.registerCollections({
       test_profile: defineCollection({
         name: 'test_profile',
         schema: z.object({
@@ -1965,47 +1965,47 @@ describe('9. Core SDK Primitives, Sign-Out, GDPR Erase & Zero-Leftover Verificat
     })
     const connectorUid = `conn_${Date.now().toString(36).padEnd(15, 'x').slice(0, 15)}`
     try {
-      const profileDoc = await core.db.create('test_profile', { id: connectorUid, bio: 'E2E Profile', age: 30 })
+      const profileDoc = await corge.db.create('test_profile', { id: connectorUid, bio: 'E2E Profile', age: 30 })
 
-      // Verify core.db.update validates against def.schema.partial() and strips immutable fields (id, createdAt)
+      // Verify corge.db.update validates against def.schema.partial() and strips immutable fields (id, createdAt)
       await assert.rejects(
-        () => core.db.update('test_profile', connectorUid, { age: 'not-a-number' as unknown as number }),
+        () => corge.db.update('test_profile', connectorUid, { age: 'not-a-number' as unknown as number }),
         /ZodError|expected number/i
       )
       const originalCreatedAt = profileDoc.createdAt
-      await core.db.update('test_profile', connectorUid, {
+      await corge.db.update('test_profile', connectorUid, {
         id: 'hacked_id',
         createdAt: new Date(0),
         bio: 'Updated Bio'
       } as Record<string, unknown>)
-      const updatedProfile = await core.db.read('test_profile', connectorUid)
+      const updatedProfile = await corge.db.read('test_profile', connectorUid)
       assert.equal(updatedProfile?.id, connectorUid)
       assert.equal(updatedProfile?.bio, 'Updated Bio')
       assert.equal(updatedProfile?.age, 30)
       assert.equal(updatedProfile?.createdAt.getTime(), originalCreatedAt.getTime())
 
-      const sharedOrg = await core.db.create('test_shared_org', {
+      const sharedOrg = await corge.db.create('test_shared_org', {
         name: 'Shared Org 1',
         userIds: [connectorUid]
       })
-      const sharedOrg2 = await core.db.create('test_shared_org', {
+      const sharedOrg2 = await corge.db.create('test_shared_org', {
         name: 'Shared Org 2',
         userIds: [connectorUid]
       })
-      const deletedOrg = await core.db.create('test_shared_org', {
+      const deletedOrg = await corge.db.create('test_shared_org', {
         name: 'Deleted Org',
         userIds: [connectorUid]
       })
-      await core.db.delete('test_shared_org', deletedOrg.id)
+      await corge.db.delete('test_shared_org', deletedOrg.id)
 
-      assert.equal(await core.db.canAccess('test_profile', profileDoc, connectorUid), true)
-      assert.equal(await core.db.canAccess('test_shared_org', sharedOrg, connectorUid), true)
+      assert.equal(await corge.db.canAccess('test_profile', profileDoc, connectorUid), true)
+      assert.equal(await corge.db.canAccess('test_shared_org', sharedOrg, connectorUid), true)
 
-      // Verify cursor pagination (core.db.list & core.db.listPage) and soft-delete exclusion
-      const page1 = await core.db.listPage('test_shared_org', { userId: connectorUid, limit: 1 })
+      // Verify cursor pagination (corge.db.list & corge.db.listPage) and soft-delete exclusion
+      const page1 = await corge.db.listPage('test_shared_org', { userId: connectorUid, limit: 1 })
       assert.equal(page1.items.length, 1)
       assert.ok(page1.nextCursor)
-      const page2 = await core.db.list('test_shared_org', {
+      const page2 = await corge.db.list('test_shared_org', {
         userId: connectorUid,
         limit: 1,
         cursor: page1.nextCursor
@@ -2013,36 +2013,36 @@ describe('9. Core SDK Primitives, Sign-Out, GDPR Erase & Zero-Leftover Verificat
       assert.equal(page2.length, 1)
       assert.notEqual(page1.items[0]?.id, page2[0]?.id)
 
-      const allActiveOrgs = await core.db.list('test_shared_org', { userId: connectorUid })
+      const allActiveOrgs = await corge.db.list('test_shared_org', { userId: connectorUid })
       assert.equal(allActiveOrgs.length, 2)
 
-      const cascadeRes = await core.internals.registry.cascadeEraseUserCollections(
+      const cascadeRes = await corge.internals.registry.cascadeEraseUserCollections(
         connectorUid,
-        core.internals.workflows.createStepRunner('rest')
+        corge.internals.workflows.createStepRunner('rest')
       )
       assert.equal(cascadeRes.erasedCollections.test_profile, 1)
       assert.equal(cascadeRes.erasedCollections.test_shared_org, 3)
-      assert.equal(await core.db.read('test_profile', connectorUid, true), undefined)
-      assert.equal(await core.db.read('test_shared_org', sharedOrg.id, true), undefined)
-      assert.equal(await core.db.read('test_shared_org', sharedOrg2.id, true), undefined)
-      assert.equal(await core.db.read('test_shared_org', deletedOrg.id, true), undefined)
+      assert.equal(await corge.db.read('test_profile', connectorUid, true), undefined)
+      assert.equal(await corge.db.read('test_shared_org', sharedOrg.id, true), undefined)
+      assert.equal(await corge.db.read('test_shared_org', sharedOrg2.id, true), undefined)
+      assert.equal(await corge.db.read('test_shared_org', deletedOrg.id, true), undefined)
     } finally {
-      await core.internals.registry
-        .cascadeEraseUserCollections(connectorUid, core.internals.workflows.createStepRunner('rest'))
+      await corge.internals.registry
+        .cascadeEraseUserCollections(connectorUid, corge.internals.workflows.createStepRunner('rest'))
         .catch(() => {})
-      core.internals.registry.unregisterCollections(['test_profile', 'test_shared_org'])
+      corge.internals.registry.unregisterCollections(['test_profile', 'test_shared_org'])
     }
   })
 
   test('Workflow NOT_FOUND error propagation & child workflow context inheritance', async () => {
-    const prevRuntime = core.internals.workflows.getRuntime()
+    const prevRuntime = corge.internals.workflows.getRuntime()
     const tempRegistry = {
       ...prevRuntime.registry,
       'child-echo-context': {
         mode: 'workflow' as const,
         deadlineSeconds: 60,
         runTask: async (_input: unknown) => {
-          const active = useCore()
+          const active = useCorge()
           return {
             userId: active.userId,
             userRole: active.role,
@@ -2058,11 +2058,11 @@ describe('9. Core SDK Primitives, Sign-Out, GDPR Erase & Zero-Leftover Verificat
         }
       }
     }
-    core.internals.workflows.registerRuntime(tempRegistry)
+    corge.internals.workflows.registerRuntime(tempRegistry)
 
     try {
-      const parentStep = core.internals.workflows.createStepRunner('rest')
-      const childResult = await core.internals.context.run(
+      const parentStep = corge.internals.workflows.createStepRunner('rest')
+      const childResult = await corge.internals.context.run(
         { env: ENV, userId: testAuthUserId, role: 'user', step: parentStep },
         () =>
           parentStep.invoke<{ ping: string }, { userId: string; userRole: string; isDev: boolean }>(
@@ -2075,7 +2075,7 @@ describe('9. Core SDK Primitives, Sign-Out, GDPR Erase & Zero-Leftover Verificat
       assert.equal(childResult.userRole, 'user')
       assert.equal(childResult.isDev, true)
 
-      const nfDocRef = core.db.firestore(true).collection('_tasks').doc()
+      const nfDocRef = corge.db.firestore(true).collection('_tasks').doc()
       const nfTaskId = nfDocRef.id
       await nfDocRef.set({
         taskId: nfTaskId,
@@ -2089,7 +2089,7 @@ describe('9. Core SDK Primitives, Sign-Out, GDPR Erase & Zero-Leftover Verificat
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       })
-      await core.internals.workflows.execute(
+      await corge.internals.workflows.execute(
         {
           taskId: nfTaskId,
           workflowName: 'fail-not-found-doc',
@@ -2103,7 +2103,7 @@ describe('9. Core SDK Primitives, Sign-Out, GDPR Erase & Zero-Leftover Verificat
       assert.ok(String(nfTaskDoc.data()?.error ?? '').includes('NOT_FOUND'))
       await nfDocRef.delete()
     } finally {
-      core.internals.workflows.registerRuntime(prevRuntime.registry)
+      corge.internals.workflows.registerRuntime(prevRuntime.registry)
     }
   })
 
@@ -2111,7 +2111,7 @@ describe('9. Core SDK Primitives, Sign-Out, GDPR Erase & Zero-Leftover Verificat
     let sfRuns = 0
     const sfResults = await Promise.all(
       Array.from({ length: 5 }, () =>
-        core.internals.resilience.singleflight('test-sf-key', async () => {
+        corge.internals.resilience.singleflight('test-sf-key', async () => {
           ++sfRuns
           await sleep(20)
           return 'coalesced-value'
@@ -2123,18 +2123,18 @@ describe('9. Core SDK Primitives, Sign-Out, GDPR Erase & Zero-Leftover Verificat
 
     let tenantRuns = 0
     const [tenantA, tenantB] = await Promise.all([
-      core.internals.context.run({ env: ENV, userId: 'tenant_user_a', role: 'user' }, () =>
-        useCore().internals.resilience.singleflight('shared-op', async () => {
+      corge.internals.context.run({ env: ENV, userId: 'tenant_user_a', role: 'user' }, () =>
+        useCorge().internals.resilience.singleflight('shared-op', async () => {
           ++tenantRuns
           await sleep(20)
-          return useCore().userId
+          return useCorge().userId
         })
       ),
-      core.internals.context.run({ env: ENV, userId: 'tenant_user_b', role: 'user' }, () =>
-        useCore().internals.resilience.singleflight('shared-op', async () => {
+      corge.internals.context.run({ env: ENV, userId: 'tenant_user_b', role: 'user' }, () =>
+        useCorge().internals.resilience.singleflight('shared-op', async () => {
           ++tenantRuns
           await sleep(20)
-          return useCore().userId
+          return useCorge().userId
         })
       )
     ])
@@ -2144,38 +2144,38 @@ describe('9. Core SDK Primitives, Sign-Out, GDPR Erase & Zero-Leftover Verificat
 
     let globalRuns = 0
     const [globalA, globalB] = await Promise.all([
-      core.internals.context.run({ env: ENV, userId: 'tenant_user_a', role: 'user' }, () =>
-        useCore().internals.resilience.singleflight(
+      corge.internals.context.run({ env: ENV, userId: 'tenant_user_a', role: 'user' }, () =>
+        useCorge().internals.resilience.singleflight(
           'global-op',
           async () => {
             ++globalRuns
             await sleep(20)
-            return useCore().userId
+            return useCorge().userId
           },
           { scope: 'global' }
         )
       ),
-      core.internals.context.run({ env: ENV, userId: 'tenant_user_b', role: 'user' }, () =>
-        useCore().internals.resilience.singleflight(
+      corge.internals.context.run({ env: ENV, userId: 'tenant_user_b', role: 'user' }, () =>
+        useCorge().internals.resilience.singleflight(
           'global-op',
           async () => {
             ++globalRuns
             await sleep(20)
-            return useCore().userId
+            return useCorge().userId
           },
           { scope: 'global' }
         )
       )
     ])
     assert.equal(globalRuns, 1)
-    assert.equal(globalA, CORE_CONFIG.auth.adminUserId)
-    assert.equal(globalB, CORE_CONFIG.auth.adminUserId)
+    assert.equal(globalA, CORGE_CONFIG.auth.adminUserId)
+    assert.equal(globalB, CORGE_CONFIG.auth.adminUserId)
 
     const rateKey = `test-limit-${Date.now()}`
-    core.internals.resilience.acquireHttpLimit(rateKey, 2, 60_000)
-    core.internals.resilience.acquireHttpLimit(rateKey, 2, 60_000)
+    corge.internals.resilience.acquireHttpLimit(rateKey, 2, 60_000)
+    corge.internals.resilience.acquireHttpLimit(rateKey, 2, 60_000)
     try {
-      core.internals.resilience.acquireHttpLimit(rateKey, 2, 60_000)
+      corge.internals.resilience.acquireHttpLimit(rateKey, 2, 60_000)
       assert.fail('Should have thrown 429')
     } catch (err: any) {
       const res = err.getResponse() as Response
@@ -2186,7 +2186,7 @@ describe('9. Core SDK Primitives, Sign-Out, GDPR Erase & Zero-Leftover Verificat
       assert.ok(body.retryAfterMs > 0)
     }
 
-    const coreBarrel = (await import('@core')) as Record<string, unknown>
+    const corgeBarrel = (await import('@corgelabs/corge')) as Record<string, unknown>
     for (const internalSymbol of [
       'decideService',
       'visionService',
@@ -2197,20 +2197,20 @@ describe('9. Core SDK Primitives, Sign-Out, GDPR Erase & Zero-Leftover Verificat
       'withCircuitBreaker',
       'getDb',
       'getBucket',
-      'runWithCore'
+      'runWithCorge'
     ]) {
-      assert.equal(internalSymbol in coreBarrel, false, `@core must not leak internal symbol ${internalSymbol}`)
+      assert.equal(internalSymbol in corgeBarrel, false, `@corge must not leak internal symbol ${internalSymbol}`)
     }
-    assert.equal(Object.keys(core).includes('internals'), false, 'core.internals must be non-enumerable')
+    assert.equal(Object.keys(corge).includes('internals'), false, 'corge.internals must be non-enumerable')
     assert.deepEqual(
-      Object.keys(core.internals).sort(),
+      Object.keys(corge.internals).sort(),
       ['auth', 'context', 'emails', 'payments', 'registry', 'resilience', 'workflows']
     )
   })
 
   test('POST /api/emails/send, POST /api/emails/batch, GET /api/emails/logs & POST /api/emails/webhooks/:provider — E2E email routes, templates, attachments & suppression', async () => {
-    core.internals.registry.registerEmailTemplates(
-      core.define.emailTemplates({
+    corge.internals.registry.registerEmailTemplates(
+      corge.define.emailTemplates({
         e2e_summary: {
           description: 'E2E summary notification',
           variables: z.object({ title: z.string(), count: z.number() }),
@@ -2247,8 +2247,8 @@ describe('9. Core SDK Primitives, Sign-Out, GDPR Erase & Zero-Leftover Verificat
     assert.equal(sendRes1.data.status, 'sent')
     assert.equal(sendRes1.data.deduplicated, undefined)
 
-    // Verify core.emails.send idempotency deduplication in email_log
-    const directDedup = await core.emails.send(
+    // Verify corge.emails.send idempotency deduplication in email_log
+    const directDedup = await corge.emails.send(
       {
         to: 'e2e-recipient@test.local',
         template: 'e2e_summary',
@@ -2261,10 +2261,10 @@ describe('9. Core SDK Primitives, Sign-Out, GDPR Erase & Zero-Leftover Verificat
     assert.equal(directDedup.deduplicated, true)
 
     // Clean up admin-owned sendRes1 log so only testAuthUserId logs remain
-    await core.db.hardDelete('email_log', sendRes1.data.emailId, { bypassRbac: true })
+    await corge.db.hardDelete('email_log', sendRes1.data.emailId, { bypassRbac: true })
 
     // Create a user-scoped email log for testAuthUserId to verify GET /api/emails/logs & cascadeEraseUserCollections
-    const userScopedSend = await core.emails.send(
+    const userScopedSend = await corge.emails.send(
       {
         to: 'user-scoped@test.local',
         template: 'e2e_summary',
@@ -2298,7 +2298,7 @@ describe('9. Core SDK Primitives, Sign-Out, GDPR Erase & Zero-Leftover Verificat
     assert.equal(batchRes.data.total, 2)
     assert.equal(batchRes.data.sent, 2)
     await Promise.all(
-      batchRes.data.results.map((r) => core.db.hardDelete('email_log', r.emailId, { bypassRbac: true }))
+      batchRes.data.results.map((r) => corge.db.hardDelete('email_log', r.emailId, { bypassRbac: true }))
     )
 
     // Verify GET /api/emails/logs filtered by userId
@@ -2330,8 +2330,8 @@ describe('9. Core SDK Primitives, Sign-Out, GDPR Erase & Zero-Leftover Verificat
   })
 
   test('GET /api/payments/status, POST /api/payments/subscribe, POST /api/payments/checkout, POST /api/payments/charge & POST /api/payments/webhooks/:provider — E2E payment routes & usage metering', async () => {
-    core.internals.registry.registerPlans(
-      core.define.plans({
+    corge.internals.registry.registerPlans(
+      corge.define.plans({
         free: {
           name: 'Free Plan',
           interval: 'free',
@@ -2347,8 +2347,8 @@ describe('9. Core SDK Primitives, Sign-Out, GDPR Erase & Zero-Leftover Verificat
         }
       })
     )
-    core.internals.registry.registerProducts(
-      core.define.products({
+    corge.internals.registry.registerProducts(
+      corge.define.products({
         e2e_token_pack: {
           name: 'E2E 5,000 Token Pack',
           amount: 500,
@@ -2412,7 +2412,7 @@ describe('9. Core SDK Primitives, Sign-Out, GDPR Erase & Zero-Leftover Verificat
     assert.equal(retryChargeRes.status, 200)
     assert.equal(retryChargeRes.data.chargeId, chargeRes.data.chargeId)
 
-    await core.payments.recordUsage(
+    await corge.payments.recordUsage(
       { metric: 'ai_tokens', amount: 250, model: 'e2e-test-model' },
       { userId: testAuthUserId }
     )
@@ -2487,7 +2487,7 @@ describe('9. Core SDK Primitives, Sign-Out, GDPR Erase & Zero-Leftover Verificat
     assert.equal(eraseRes.data.erasedUser, true)
     userErased = true
 
-    const db = core.db.firestore(true)
+    const db = corge.db.firestore(true)
     const [
       leftoverAuthUser,
       leftoverAuthMetaDoc,
@@ -2502,7 +2502,7 @@ describe('9. Core SDK Primitives, Sign-Out, GDPR Erase & Zero-Leftover Verificat
       leftoverPaymentTxDocs,
       [leftoverStorageBlobs]
     ] = await Promise.all([
-      core.auth.getUser(testAuthUserId),
+      corge.auth.getUser(testAuthUserId),
       db.collection('user_auth_meta').doc(testAuthUserId).get(),
       db.collection('auth_tokens').where('userId', '==', testAuthUserId).get(),
       db.collection('file').where('userId', '==', testAuthUserId).get(),
@@ -2513,7 +2513,7 @@ describe('9. Core SDK Primitives, Sign-Out, GDPR Erase & Zero-Leftover Verificat
       db.collection('payment_customer').doc(testAuthUserId).get(),
       db.collection('payment_usage').where('userId', '==', testAuthUserId).get(),
       db.collection('payment_transaction').where('userId', '==', testAuthUserId).get(),
-      core.files.bucket(true).getFiles({ prefix: `${testAuthUserId}_` })
+      corge.files.bucket(true).getFiles({ prefix: `${testAuthUserId}_` })
     ])
     assert.equal(leftoverAuthUser, undefined, 'Expected user to be completely deleted from Firebase Auth')
     assert.equal(leftoverAuthMetaDoc.exists, false, 'Expected 0 leftover user_auth_meta doc in Firestore')

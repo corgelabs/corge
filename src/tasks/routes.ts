@@ -1,9 +1,9 @@
 import type { Context } from 'hono'
 import type { z } from 'zod'
-import { CORE_CONFIG, type AppEnv } from '../config'
+import { CORGE_CONFIG, type AppEnv } from '../config'
 import { collectionRegistry, getEffectiveRbac } from '../db'
-import { core } from '../index'
-import { CORE_ROUTE_DEFAULTS, type BaseRouteConfig } from '../router'
+import { corge } from '../index'
+import { CORGE_ROUTE_DEFAULTS, type BaseRouteConfig } from '../router'
 import {
   signalTaskBody,
   type RouteIntrospectionItem,
@@ -35,11 +35,11 @@ const summarizeGuards = (g?: BaseRouteConfig['guard']): string[] => {
 
 export const buildRoutesIntrospection = (
   routeItems: RouteRegistryItem[],
-  scope: 'all' | 'custom' | 'core' = 'all'
+  scope: 'all' | 'custom' | 'corge' = 'all'
 ): RoutesIntrospectionResponse => {
   const filtered = routeItems.filter((r) => {
-    const isCore = r.id in CORE_ROUTE_DEFAULTS
-    if (scope === 'core') return isCore
+    const isCore = r.id in CORGE_ROUTE_DEFAULTS
+    if (scope === 'corge') return isCore
     if (scope === 'custom') return !isCore
     return true
   })
@@ -69,7 +69,7 @@ export const buildRoutesIntrospection = (
   }
 
   return {
-    appName: CORE_CONFIG.appName,
+    appName: CORGE_CONFIG.appName,
     generatedAt: new Date().toISOString(),
     routes,
     collections
@@ -77,8 +77,8 @@ export const buildRoutesIntrospection = (
 }
 
 export const renderApiContractMarkdown = (meta: RoutesIntrospectionResponse): string => {
-  const coreRoutes = meta.routes.filter((r) => r.id in CORE_ROUTE_DEFAULTS)
-  const domainRoutes = meta.routes.filter((r) => !(r.id in CORE_ROUTE_DEFAULTS))
+  const coreRoutes = meta.routes.filter((r) => r.id in CORGE_ROUTE_DEFAULTS)
+  const domainRoutes = meta.routes.filter((r) => !(r.id in CORGE_ROUTE_DEFAULTS))
 
   const renderRouteBlock = (r: RouteIntrospectionItem) => {
     const lines: string[] = [
@@ -112,7 +112,7 @@ export const renderApiContractMarkdown = (meta: RoutesIntrospectionResponse): st
     `> **Generated At:** \`${meta.generatedAt}\``,
     '> **Agent Instruction:** This document is deterministically generated from runtime Zod schemas and route definitions. Treat it as the single source of truth for all HTTP endpoints, payloads, authentication levels, and Firestore collection models.',
     '',
-    '## 1. Core Protocol & Architecture Conventions',
+    '## 1. Corge Protocol & Architecture Conventions',
     '',
     '### 1.1. Authentication & Sessions (`auth`)',
     '- **`public` / `none` / `false`**: No authentication required.',
@@ -133,7 +133,7 @@ export const renderApiContractMarkdown = (meta: RoutesIntrospectionResponse): st
     '### 1.4. Thin-Client AI Chat Streaming (`POST /api/chats/:chatId`)',
     '- Send `{ message: { id?, role: "user", content, parts?, attachments? }, agentId?, model? }` to stream SSE responses and cancel active streams via `POST /api/chats/:chatId/cancel`.',
     '',
-    '## 2. Core Endpoints Catalog',
+    '## 2. Corge Endpoints Catalog',
     '',
     ...coreRoutes.map(renderRouteBlock),
     '',
@@ -152,8 +152,8 @@ export const buildHealthRoute = () => ({
   handler: async () => ({
     ok: true,
     status: 'healthy' as const,
-    service: CORE_CONFIG.appName,
-    env: core.env.isDev ? ('dev' as const) : ('prod' as const),
+    service: CORGE_CONFIG.appName,
+    env: corge.env.isDev ? ('dev' as const) : ('prod' as const),
     timestamp: new Date().toISOString()
   })
 })
@@ -162,8 +162,8 @@ export const buildRoutesListRoute = (routeItems: () => RouteRegistryItem[]) => (
   mode: 'rest' as const,
   handler: async ({ c }: { c: Context<AppEnv> }) => {
     const rawScope = c?.req.query('scope')
-    const scope: 'all' | 'custom' | 'core' =
-      rawScope === 'custom' || rawScope === 'core' ? rawScope : 'all'
+    const scope: 'all' | 'custom' | 'corge' =
+      rawScope === 'custom' || rawScope === 'corge' ? rawScope : 'all'
     const format = c?.req.query('format')
     const accept = c?.req.header('accept') ?? ''
     const meta = buildRoutesIntrospection(routeItems(), scope)
@@ -182,7 +182,7 @@ export const buildTaskStatusRoute = () => ({
   mode: 'rest' as const,
   handler: async ({ c }: { c: Context<AppEnv> }) => {
     const taskId = c.req.param('taskId') ?? ''
-    const status = await core.tasks.status(taskId)
+    const status = await corge.tasks.status(taskId)
     if (
       status.status === 'running' ||
       status.status === 'sleeping' ||
@@ -200,10 +200,10 @@ export const buildTaskStatusRoute = () => ({
       )
     }
     if (status.status === 'errored') {
-      return core.errors.httpError(502, status.error ?? 'Workflow task failed', 'WORKFLOW_ERROR')
+      return corge.errors.httpError(502, status.error ?? 'Workflow task failed', 'WORKFLOW_ERROR')
     }
     if (status.status === 'cancelled') {
-      return core.errors.httpError(409, status.error ?? 'Workflow task cancelled', 'TASK_CANCELLED')
+      return corge.errors.httpError(409, status.error ?? 'Workflow task cancelled', 'TASK_CANCELLED')
     }
     if (c.req.query('envelope') === 'true') {
       return status
@@ -217,7 +217,7 @@ export const buildTaskSignalRoute = () => ({
   input: signalTaskBody,
   handler: async ({ c, input }: { c: Context<AppEnv>; input: z.infer<typeof signalTaskBody> }) => {
     const taskId = c.req.param('taskId') ?? ''
-    return core.tasks.signal(taskId, input.signal, input.payload)
+    return corge.tasks.signal(taskId, input.signal, input.payload)
   }
 })
 
@@ -225,6 +225,6 @@ export const buildTaskCancelRoute = () => ({
   mode: 'rest' as const,
   handler: async ({ c }: { c: Context<AppEnv> }) => {
     const taskId = c.req.param('taskId') ?? ''
-    return core.tasks.cancel(taskId)
+    return corge.tasks.cancel(taskId)
   }
 })

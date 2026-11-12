@@ -1,5 +1,5 @@
 import type { EntryId } from '../db'
-import type { Core } from '../index'
+import type { Corge } from '../index'
 import { PaymentsBillingEngine } from './billing'
 import {
   getPlanDefinition,
@@ -37,12 +37,12 @@ import {
 } from './utils'
 
 export class PaymentsService {
-  readonly #core: Core
+  readonly #corge: Corge
   readonly #billing: PaymentsBillingEngine
 
-  constructor(coreClient: Core) {
-    this.#core = coreClient
-    this.#billing = new PaymentsBillingEngine(coreClient)
+  constructor(corgeClient: Corge) {
+    this.#corge = corgeClient
+    this.#billing = new PaymentsBillingEngine(corgeClient)
   }
 
   createCheckout = (input: CreateCheckoutInput, opts?: PaymentCallOptions): Promise<CheckoutSessionResult> =>
@@ -66,9 +66,9 @@ export class PaymentsService {
   cancelSubscription = (input?: CancelSubscriptionInput, opts?: PaymentCallOptions): Promise<SubscriptionRecord> =>
     this.#billing.cancelSubscription(input, opts)
 
-  getSubscription = async (userId: EntryId = this.#core.userId): Promise<CustomerBillingSummary> => {
-    const cfg = this.#core.config.payments
-    const cust = await this.#core.db.read('payment_customer', userId, false, { bypassRbac: true })
+  getSubscription = async (userId: EntryId = this.#corge.userId): Promise<CustomerBillingSummary> => {
+    const cfg = this.#corge.config.payments
+    const cust = await this.#corge.db.read('payment_customer', userId, false, { bypassRbac: true })
     const planId = cust?.planId ?? cfg.defaultPlanId
     const plan = getPlanDefinition(planId) ?? defaultFallbackPlan(planId, cfg.defaultCurrency)
     return {
@@ -93,13 +93,13 @@ export class PaymentsService {
     }
   }
 
-  getUsage = async (userId: EntryId = this.#core.userId): Promise<UsageStatusResult> => {
-    const cfg = this.#core.config.payments
-    const cust = await this.#core.db.read('payment_customer', userId, false, { bypassRbac: true })
+  getUsage = async (userId: EntryId = this.#corge.userId): Promise<UsageStatusResult> => {
+    const cfg = this.#corge.config.payments
+    const cust = await this.#corge.db.read('payment_customer', userId, false, { bypassRbac: true })
     const planId = cust?.planId ?? cfg.defaultPlanId
     const plan = getPlanDefinition(planId) ?? defaultFallbackPlan(planId, cfg.defaultCurrency)
     const periodKey = currentPeriodKey(cust?.currentPeriodStart)
-    const usage = await this.#core.db.read('payment_usage', paymentUsageDocId(userId, periodKey), false, {
+    const usage = await this.#corge.db.read('payment_usage', paymentUsageDocId(userId, periodKey), false, {
       bypassRbac: true
     })
     return {
@@ -121,7 +121,7 @@ export class PaymentsService {
   checkQuota = async (
     metric = 'ai_tokens',
     requiredAmount = 1,
-    userId: EntryId = this.#core.userId,
+    userId: EntryId = this.#corge.userId,
     throwOnExceeded = true
   ): Promise<QuotaCheckResult> => {
     const usage = await this.getUsage(userId)
@@ -145,7 +145,7 @@ export class PaymentsService {
     const remaining = Number.isFinite(hardCap) ? Math.max(0, hardCap - used) : null
 
     if (!allowed && throwOnExceeded) {
-      return this.#core.errors.httpError(
+      return this.#corge.errors.httpError(
         402,
         `Payment Required: ${metric} quota exceeded for plan "${usage.planId}"`,
         'QUOTA_EXCEEDED'
@@ -196,13 +196,13 @@ export class PaymentsService {
 
   recordUsage = async (rawInput: RecordUsageInput, opts?: PaymentCallOptions): Promise<UsageStatusResult> => {
     const parsed = recordUsageInput.parse(rawInput)
-    const userId = opts?.userId ?? this.#core.userId
-    const cfg = this.#core.config.payments
-    const db = this.#core.db.firestore()
+    const userId = opts?.userId ?? this.#corge.userId
+    const cfg = this.#corge.config.payments
+    const db = this.#corge.db.firestore()
     const custRef = db.collection('payment_customer').doc(userId)
     const rawIdemKey = parsed.idempotencyKey ?? opts?.idempotencyKey
 
-    await this.#core.internals.resilience.acquireLimit('firestore')
+    await this.#corge.internals.resilience.acquireLimit('firestore')
     const txOut = await db.runTransaction(async (tx) => {
       const idemRef = rawIdemKey
         ? db.collection('_idempotency').doc(`pay_usage_${userId}_${rawIdemKey.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 96)}`)
@@ -296,7 +296,7 @@ export class PaymentsService {
     provider: PaymentProvider,
     ev: NormalizedPaymentWebhook
   ): Promise<{ handled: boolean; deduplicated?: boolean }> => {
-    const db = this.#core.db.firestore()
+    const db = this.#corge.db.firestore()
     let userId = ev.userId
     if (!userId && ev.customerId) {
       const field = provider === 'stripe' ? 'stripeCustomerId' : 'dodoCustomerId'
@@ -311,7 +311,7 @@ export class PaymentsService {
     const prod = ev.productId ? getProductDefinition(ev.productId) : undefined
     const grantKey = prod?.grants ? (ev.paymentId ?? ev.eventId).replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 96) : undefined
     const grantRef = grantKey ? db.collection('_idempotency').doc(`pay_grant_${userId}_${grantKey}`) : undefined
-    await this.#core.internals.resilience.acquireLimit('firestore')
+    await this.#corge.internals.resilience.acquireLimit('firestore')
 
     const { deduplicated } = await db.runTransaction(async (tx) => {
       const [txSnap, custSnap, grantSnap] = await Promise.all([tx.get(txRef), tx.get(custRef), grantRef ? tx.get(grantRef) : Promise.resolve(undefined)])
@@ -326,7 +326,7 @@ export class PaymentsService {
       if (applyGrants) {
         for (const [m, delta] of Object.entries(prod?.grants?.metrics ?? {})) bonusMetrics[m] = (bonusMetrics[m] ?? 0) + delta
       }
-      const defaultPlanId = this.#core.config.payments.defaultPlanId
+      const defaultPlanId = this.#corge.config.payments.defaultPlanId
       const nextPlanId = ev.txType === 'subscription.cancelled' ? defaultPlanId : (ev.planId ?? custData.planId ?? defaultPlanId)
 
       tx.set(txRef, {
@@ -374,7 +374,7 @@ export class PaymentsService {
       const periodKey = currentPeriodKey(ev.currentPeriodStart)
       const usageId = paymentUsageDocId(userId, periodKey)
       const now = new Date()
-      const planId = ev.planId ?? this.#core.config.payments.defaultPlanId
+      const planId = ev.planId ?? this.#corge.config.payments.defaultPlanId
       await db.collection('payment_usage').doc(usageId).set(
         { id: usageId, userId, periodKey, planId, aiTokensUsed: 0, aiInputTokens: 0, aiOutputTokens: 0, overageTokensReported: 0, metricsUsed: {}, lastUpdatedAt: now.toISOString(), deleted: false, createdAt: now, updatedAt: now },
         { merge: true }
@@ -391,9 +391,9 @@ export class PaymentsService {
     const { webhookSecret } = this.#billing.getCreds(provider)
     let normalized: NormalizedPaymentWebhook
     try {
-      normalized = normalizePaymentWebhook(provider, rawBody, headers, webhookSecret, this.#core.config.payments.webhookToleranceSeconds)
+      normalized = normalizePaymentWebhook(provider, rawBody, headers, webhookSecret, this.#corge.config.payments.webhookToleranceSeconds)
     } catch (err) {
-      return this.#core.errors.httpError(
+      return this.#corge.errors.httpError(
         401,
         err instanceof Error ? err.message : `Invalid ${provider} webhook signature`,
         'INVALID_WEBHOOK_SIGNATURE'
@@ -403,9 +403,9 @@ export class PaymentsService {
     return { received: true, eventId: normalized.eventId, handled, ...(deduplicated ? { deduplicated: true } : {}) }
   }
 
-  #enforceAiQuota = async (userId: EntryId = this.#core.userId, estimatedTokens = 1): Promise<void> => {
-    const cfg = this.#core.config.payments
-    if (!cfg.enabled || !cfg.autoTrackAiTokens || !userId || this.#core.role === 'admin' || userId === this.#core.config.auth.adminUserId) return
+  #enforceAiQuota = async (userId: EntryId = this.#corge.userId, estimatedTokens = 1): Promise<void> => {
+    const cfg = this.#corge.config.payments
+    if (!cfg.enabled || !cfg.autoTrackAiTokens || !userId || this.#corge.role === 'admin' || userId === this.#corge.config.auth.adminUserId) return
     await this.checkQuota('ai_tokens', estimatedTokens, userId, true)
   }
 
@@ -417,9 +417,9 @@ export class PaymentsService {
     totalTokens?: number
     source: 'generate' | 'vision' | 'decide' | 'chat'
   }): Promise<void> => {
-    const cfg = this.#core.config.payments
-    const userId = params.userId ?? this.#core.userId
-    if (!cfg.enabled || !cfg.autoTrackAiTokens || !userId || this.#core.role === 'admin' || userId === this.#core.config.auth.adminUserId) return
+    const cfg = this.#corge.config.payments
+    const userId = params.userId ?? this.#corge.userId
+    if (!cfg.enabled || !cfg.autoTrackAiTokens || !userId || this.#corge.role === 'admin' || userId === this.#corge.config.auth.adminUserId) return
     const total = params.totalTokens ?? params.inputTokens + params.outputTokens
     if (total <= 0) return
     await this.recordUsage(

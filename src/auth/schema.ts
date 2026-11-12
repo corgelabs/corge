@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import {
-  CORE_CONFIG,
+  CORGE_CONFIG,
   type AuthEmailPurpose,
   type AuthTokenPurpose,
   type DbRole,
@@ -10,9 +10,9 @@ import { entryId, type BaseEntryFields, type EntryId } from '../db'
 
 export { type AuthEmailPurpose, type AuthTokenPurpose, type TransactionalEmailPayload }
 
-export const SESSION_COOKIE = CORE_CONFIG.auth.sessionCookie
-export const SESSION_EXPIRES_IN = CORE_CONFIG.auth.sessionExpiresInMs
-export const ADMIN_USER_ID: EntryId = CORE_CONFIG.auth.adminUserId
+export const SESSION_COOKIE = CORGE_CONFIG.auth.sessionCookie
+export const SESSION_EXPIRES_IN = CORGE_CONFIG.auth.sessionExpiresInMs
+export const ADMIN_USER_ID: EntryId = CORGE_CONFIG.auth.adminUserId
 
 export type OAuthProvider = 'google' | 'apple'
 
@@ -100,7 +100,7 @@ export type EraseUserInput = z.input<typeof eraseUserInput>
 export type EraseUserOutput = z.infer<typeof eraseUserOutput>
 
 export const customTokenBody = z
-  .object({ uid: entryId.refine((id) => id !== CORE_CONFIG.auth.adminUserId, 'Reserved UID').optional() })
+  .object({ uid: entryId.refine((id) => id !== CORGE_CONFIG.auth.adminUserId, 'Reserved UID').optional() })
   .default({})
 export const sessionBody = z.object({ idToken: z.string().min(1) })
 export const emailSignUpBody = z.object({

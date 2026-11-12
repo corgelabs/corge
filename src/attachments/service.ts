@@ -1,7 +1,7 @@
 import type { JevQuestion } from '../ai'
 import type { SelectModel } from '../db'
 import { fileScan, fileScanError, type FileRef, type FileScan, type FileScanError } from '../files'
-import type { Core } from '../index'
+import type { Corge } from '../index'
 import type { StepRunner } from '../tasks'
 import {
   getRegisteredAttachmentTypes,
@@ -24,10 +24,10 @@ import {
 } from './utils'
 
 export class AttachmentsService {
-  readonly #core: Core
+  readonly #corge: Corge
 
-  constructor(coreClient: Core) {
-    this.#core = coreClient
+  constructor(corgeClient: Corge) {
+    this.#corge = corgeClient
   }
 
   #wrapScanStep = async <T>(fn: () => Promise<T>, onDefect: (defect: FileScanError) => void): Promise<T> => {
@@ -37,7 +37,7 @@ export class AttachmentsService {
       const defect = classifyPermanentScanDefect(err)
       if (defect) {
         onDefect(defect)
-        return this.#core.errors.nonRetryableError(defect.agentHint, defect.reason)
+        return this.#corge.errors.nonRetryableError(defect.agentHint, defect.reason)
       }
       throw err
     }
@@ -50,8 +50,8 @@ export class AttachmentsService {
   ): Promise<{ scan?: FileScan; scanError?: FileScanError } | undefined> => {
     if (!shaSum || shaSum.length < 24) return undefined
     try {
-      await this.#core.internals.resilience.acquireLimit('firestore')
-      const snap = await this.#core.db.firestore().collection('file').where('shaSum', '==', shaSum).limit(5).get()
+      await this.#corge.internals.resilience.acquireLimit('firestore')
+      const snap = await this.#corge.db.firestore().collection('file').where('shaSum', '==', shaSum).limit(5).get()
       for (const doc of snap.docs) {
         if (doc.id === ref) continue
         const data = doc.data()
@@ -90,7 +90,7 @@ export class AttachmentsService {
         }
       }
     }
-    const { answers } = await this.#core.ai.decide({ document: attachmentContent.slice(0, 80_000) }, questions)
+    const { answers } = await this.#corge.ai.decide({ document: attachmentContent.slice(0, 80_000) }, questions)
     const ans = answers.documentType
     return ans?.type === 'choice'
       ? { attachmentType: ans.choice, confidence: ans.confidence }
@@ -110,7 +110,7 @@ export class AttachmentsService {
     let dataUrlP: Promise<string> | undefined
     const getDataUrl = () =>
       (dataUrlP ??= (async () =>
-        `data:${contentType};base64,${(await this.#core.files.download(ref)).toString('base64')}`)())
+        `data:${contentType};base64,${(await this.#corge.files.download(ref)).toString('base64')}`)())
 
     const hasTypes = Object.keys(types).length > 0
     let resolvedType: string | undefined = hasTypes ? initialType : 'other'
@@ -119,12 +119,12 @@ export class AttachmentsService {
 
     if (!resolvedType || resolvedType === 'other') {
       const ocrRes = await step('ocr', ({ signal }) =>
-        this.#wrapScanStep(async () => this.#core.ai.vision(await getDataUrl(), { signal }), onDefect)
+        this.#wrapScanStep(async () => this.#corge.ai.vision(await getDataUrl(), { signal }), onDefect)
       )
       markdown = ocrRes.markdown
       if (!markdown) {
         markdown = await step('vision', ({ signal }) =>
-          this.#wrapScanStep(async () => this.#core.ai.describeImage(await getDataUrl(), signal), onDefect)
+          this.#wrapScanStep(async () => this.#corge.ai.describeImage(await getDataUrl(), signal), onDefect)
         )
         resolvedType = 'other'
       } else {
@@ -137,7 +137,7 @@ export class AttachmentsService {
         }
         if (hasTypes && resolvedType === 'other' && isImage) {
           const visionDesc = await step('vision', ({ signal }) =>
-            this.#wrapScanStep(async () => this.#core.ai.describeImage(await getDataUrl(), signal), onDefect)
+            this.#wrapScanStep(async () => this.#corge.ai.describeImage(await getDataUrl(), signal), onDefect)
           )
           markdown = `${markdown}\n\n${visionDesc}`.trim()
         }
@@ -148,7 +148,7 @@ export class AttachmentsService {
     const schema = resolvedType && resolvedType !== 'other' ? schemaFor(resolvedType, types) : undefined
     if (schema && resolvedType) {
       const extract = await step('extract', ({ signal }) =>
-        this.#wrapScanStep(async () => this.#core.ai.vision(await getDataUrl(), { schema, signal }), onDefect)
+        this.#wrapScanStep(async () => this.#corge.ai.vision(await getDataUrl(), { schema, signal }), onDefect)
       )
       fields = parseFields(resolvedType, extract.annotation, types)
       if (!markdown) markdown = extract.markdown
@@ -160,7 +160,7 @@ export class AttachmentsService {
         'The uploaded document appears blank or unreadable (fewer than 5 characters detected). Please upload a clear, legible scan or photo of the document.'
       )
       onDefect(defect)
-      return this.#core.errors.nonRetryableError(defect.agentHint, defect.reason)
+      return this.#corge.errors.nonRetryableError(defect.agentHint, defect.reason)
     }
 
     return { type: resolvedType ?? 'other', confidence, fields, markdown }
@@ -170,7 +170,7 @@ export class AttachmentsService {
     raw: ScanAttachmentInput,
     opts?: { types?: AttachmentTypesMap; step?: StepRunner; preloadedFile?: SelectModel<'file'> }
   ): Promise<ScanAttachmentOutput> => {
-    const step = opts?.step ?? this.#core.step
+    const step = opts?.step ?? this.#corge.step
     const types = opts?.types ?? getRegisteredAttachmentTypes()
     const preloadedFile = opts?.preloadedFile
     const { ref, type } = scanAttachmentInput.parse(raw)
@@ -178,30 +178,30 @@ export class AttachmentsService {
       throw new Error(`Invalid attachment type: ${type}`)
     }
 
-    return this.#core.internals.resilience.singleflight(
-      `scan:${this.#core.env.isDev ? 'dev' : 'prod'}:${ref}:${type ?? ''}`,
+    return this.#corge.internals.resilience.singleflight(
+      `scan:${this.#corge.env.isDev ? 'dev' : 'prod'}:${ref}:${type ?? ''}`,
       async () => {
         const entry =
-          preloadedFile ?? (await step('read-meta', () => this.#core.db.read('file', ref, false, { bypassRbac: true })))
+          preloadedFile ?? (await step('read-meta', () => this.#corge.db.read('file', ref, false, { bypassRbac: true })))
         if (!entry) throw new Error(`File not found: ${ref}`)
         if (entry.scan) return scanAttachmentOutput.parse(entry.scan)
         if (entry.scanError) {
-          return this.#core.errors.nonRetryableError(entry.scanError.agentHint, entry.scanError.reason)
+          return this.#corge.errors.nonRetryableError(entry.scanError.agentHint, entry.scanError.reason)
         }
 
         const shaSum = entry.shaSum || ref.slice(-24)
         const crossUserMatch = await this.#findCrossUserByShaSum(ref, shaSum, type)
         if (crossUserMatch?.scan) {
           await step('persist', () =>
-            this.#core.db.update('file', ref, { scan: crossUserMatch.scan!, scanError: null }, { bypassRbac: true })
+            this.#corge.db.update('file', ref, { scan: crossUserMatch.scan!, scanError: null }, { bypassRbac: true })
           )
           return scanAttachmentOutput.parse(crossUserMatch.scan)
         }
         if (crossUserMatch?.scanError) {
-          await this.#core.db
+          await this.#corge.db
             .update('file', ref, { scanError: crossUserMatch.scanError, scan: null }, { bypassRbac: true })
             .catch(() => {})
-          return this.#core.errors.nonRetryableError(
+          return this.#corge.errors.nonRetryableError(
             crossUserMatch.scanError.agentHint,
             crossUserMatch.scanError.reason
           )
@@ -220,17 +220,17 @@ export class AttachmentsService {
             }
           })
           await step('persist', () =>
-            this.#core.db.update('file', ref, { scan, scanError: null }, { bypassRbac: true })
+            this.#corge.db.update('file', ref, { scan, scanError: null }, { bypassRbac: true })
           )
           return scanAttachmentOutput.parse(scan)
         } catch (err) {
           const defect = capturedDefect ?? classifyPermanentScanDefect(err)
           if (defect) {
-            await this.#core.db
+            await this.#corge.db
               .update('file', ref, { scanError: defect, scan: null }, { bypassRbac: true })
               .catch(() => {})
-            if (err instanceof this.#core.errors.NonRetryableError) throw err
-            return this.#core.errors.nonRetryableError(defect.agentHint, defect.reason)
+            if (err instanceof this.#corge.errors.NonRetryableError) throw err
+            return this.#corge.errors.nonRetryableError(defect.agentHint, defect.reason)
           }
           throw err
         }
@@ -239,10 +239,10 @@ export class AttachmentsService {
   }
 
   #scanShortCircuit = async ({ input }: { input: ScanAttachmentInput }): Promise<ScanAttachmentOutput | undefined> => {
-    const entry = await this.#core.db.read('file', input.ref, false, { bypassRbac: true })
+    const entry = await this.#corge.db.read('file', input.ref, false, { bypassRbac: true })
     if (entry?.scan) return scanAttachmentOutput.parse(entry.scan)
     if (entry?.scanError) {
-      return this.#core.errors.nonRetryableError(entry.scanError.agentHint, entry.scanError.reason)
+      return this.#corge.errors.nonRetryableError(entry.scanError.agentHint, entry.scanError.reason)
     }
     return undefined
   }
@@ -261,7 +261,7 @@ export class AttachmentsService {
     try {
       return { ref: input.ref, scan: await this.scan(input, { step, types, preloadedFile }) }
     } catch (err) {
-      if (this.#core.errors.isNonRetryableError(err)) {
+      if (this.#corge.errors.isNonRetryableError(err)) {
         return { ref: input.ref, error: err instanceof Error ? err.message : String(err) }
       }
       return { ref: input.ref, error: 'Temporary scanning service unavailability. Please retry.' }
@@ -273,10 +273,10 @@ export class AttachmentsService {
     opts?: { types?: AttachmentTypesMap; step?: StepRunner }
   ): Promise<ProcessAttachmentsOutput> => {
     const tasks = extractAttachmentTasks(raw)
-    const step = opts?.step ?? this.#core.step
+    const step = opts?.step ?? this.#corge.step
 
     const uniqueRefs = [...new Set(tasks.map((t) => t.ref))]
-    const existingFiles = await this.#core.db.list('file', { ids: uniqueRefs }, { bypassRbac: true })
+    const existingFiles = await this.#corge.db.list('file', { ids: uniqueRefs }, { bypassRbac: true })
     const fileMap = new Map<FileRef, SelectModel<'file'>>(existingFiles.map((f) => [f.id, f]))
 
     const attachments = await step.map(
@@ -285,12 +285,12 @@ export class AttachmentsService {
       (taskInput) =>
         this.#scanTask({
           input: taskInput,
-          step: this.#core.internals.workflows.createStepRunner('workflow'),
+          step: this.#corge.internals.workflows.createStepRunner('workflow'),
           types: opts?.types,
           preloadedFile: fileMap.get(taskInput.ref)
         }),
       {
-        timeout: `${this.#core.config.tasks.scanDeadlineSeconds}s`,
+        timeout: `${this.#corge.config.tasks.scanDeadlineSeconds}s`,
         shortCircuit: (taskInput) => {
           const fileDoc = fileMap.get(taskInput.ref)
           if (fileDoc?.scan) {

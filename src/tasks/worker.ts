@@ -1,9 +1,9 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { createHash } from 'node:crypto'
 import { Timestamp, type DocumentReference, type Firestore } from 'firebase-admin/firestore'
-import { CORE_CONFIG, type DbRole } from '../config'
+import { CORGE_CONFIG, type DbRole } from '../config'
 import type { EntryId } from '../db'
-import type { Core } from '../index'
+import type { Corge } from '../index'
 import type { RouteMode } from '../router'
 import type { Duration } from '../utils'
 import {
@@ -37,12 +37,12 @@ const workflowStorage = new AsyncLocalStorage<ActiveWorkflowStore>()
 let activeRegistry: Record<string, WorkflowRuntimeEntry> = {}
 
 export class TaskWorkerEngine {
-  readonly #core: Core
+  readonly #corge: Corge
   #steps!: TaskStepsEngine
   #watcher!: TaskWatcherEngine
 
-  constructor(coreClient: Core) {
-    this.#core = coreClient
+  constructor(corgeClient: Corge) {
+    this.#corge = corgeClient
   }
 
   bindEngines = (steps: TaskStepsEngine, watcher: TaskWatcherEngine): void => {
@@ -61,7 +61,7 @@ export class TaskWorkerEngine {
       workflowName: 'inline',
       attempt: 1,
       startedAt: now,
-      deadlineMs: now + CORE_CONFIG.tasks.defaultDeadlineSeconds * 1000,
+      deadlineMs: now + CORGE_CONFIG.tasks.defaultDeadlineSeconds * 1000,
       signal: new AbortController().signal
     }
   }
@@ -100,20 +100,20 @@ export class TaskWorkerEngine {
       ...(timeout !== undefined ? { timeout } : {}),
       ...(options?.dedupeKey ? { dedupeKey: options.dedupeKey } : {}),
       wait: options?.wait !== false,
-      userId: this.#core.userId,
-      userRole: this.#core.role
+      userId: this.#corge.userId,
+      userRole: this.#corge.role
     })
   }
 
   #unwrapTaskRecord = <O>(res: TaskRecord<O>): O => {
     if (res.status === 'completed') return res.response
     if (res.status === 'cancelled') {
-      return this.#core.errors.httpError(409, res.error ?? 'Workflow task cancelled', 'TASK_CANCELLED')
+      return this.#corge.errors.httpError(409, res.error ?? 'Workflow task cancelled', 'TASK_CANCELLED')
     }
     if (res.nonRetryable) {
-      return this.#core.errors.httpError(400, res.error, res.errorCode ?? 'NON_RETRYABLE_ERROR')
+      return this.#corge.errors.httpError(400, res.error, res.errorCode ?? 'NON_RETRYABLE_ERROR')
     }
-    return this.#core.errors.httpError(502, res.error, 'WORKFLOW_ERROR')
+    return this.#corge.errors.httpError(502, res.error, 'WORKFLOW_ERROR')
   }
 
   #dispatchInline = async <I, O>(
@@ -125,7 +125,7 @@ export class TaskWorkerEngine {
     fn: (input: I, step: StepRunner) => Promise<O>,
     params: I
   ): Promise<O> => {
-    const env = this.#core.env
+    const env = this.#corge.env
     const now = Date.now()
     const wfCtx: WorkflowContext = {
       taskId: 'inline',
@@ -142,15 +142,15 @@ export class TaskWorkerEngine {
     })
     try {
       return await this.runWithWorkflowContext({ workflow: wfCtx, step, env }, () =>
-        this.#core.internals.context.run({ env, userId, role: userRole, step }, () => fn(params, step))
+        this.#corge.internals.context.run({ env, userId, role: userRole, step }, () => fn(params, step))
       )
     } catch (err) {
       await step.compensate()
-      if (err instanceof this.#core.errors.NonRetryableError) {
-        return this.#core.errors.httpError(400, err.message, err.code ?? 'NON_RETRYABLE_ERROR')
+      if (err instanceof this.#corge.errors.NonRetryableError) {
+        return this.#corge.errors.httpError(400, err.message, err.code ?? 'NON_RETRYABLE_ERROR')
       }
       const msg = err instanceof Error ? err.message : String(err)
-      return this.#core.errors.httpError(502, msg, 'WORKFLOW_ERROR')
+      return this.#corge.errors.httpError(502, msg, 'WORKFLOW_ERROR')
     }
   }
 
@@ -180,7 +180,7 @@ export class TaskWorkerEngine {
       lastHeartbeatAt: nowMs,
       createdAt: nowIso,
       updatedAt: nowIso,
-      expiresAt: Timestamp.fromMillis(nowMs + CORE_CONFIG.tasks.ttlMs)
+      expiresAt: Timestamp.fromMillis(nowMs + CORGE_CONFIG.tasks.ttlMs)
     }
 
     if (!deterministicId) {
@@ -208,20 +208,20 @@ export class TaskWorkerEngine {
     params: I,
     opts?: DispatchWorkflowOptions
   ): Promise<O> => {
-    const env = this.#core.env
+    const env = this.#corge.env
     const mode = opts?.mode ?? 'workflow'
     const explicitDeadline = opts?.timeout
       ? Math.max(
           15,
-          Math.ceil(this.#core.errors.parseDuration(opts.timeout, CORE_CONFIG.tasks.defaultDeadlineSeconds * 1000) / 1000)
+          Math.ceil(this.#corge.errors.parseDuration(opts.timeout, CORGE_CONFIG.tasks.defaultDeadlineSeconds * 1000) / 1000)
         )
       : undefined
     const deadline = resolveTaskDeadline(workflowName, explicitDeadline)
-    const useQueue = mode !== 'rest' && CORE_CONFIG.tasks.useCloudTasks
-    const userId = opts?.userId ?? this.#core.userId ?? CORE_CONFIG.auth.adminUserId
-    const userRole = this.#core.internals.auth.resolveUserRole(userId, opts?.userRole ?? this.#core.role)
+    const useQueue = mode !== 'rest' && CORGE_CONFIG.tasks.useCloudTasks
+    const userId = opts?.userId ?? this.#corge.userId ?? CORGE_CONFIG.auth.adminUserId
+    const userRole = this.#corge.internals.auth.resolveUserRole(userId, opts?.userRole ?? this.#corge.role)
 
-    const db = this.#core.db.firestore(env.isDev)
+    const db = this.#corge.db.firestore(env.isDev)
     const deterministicId = opts?.dedupeKey
       ? `dedupe_${createHash('sha256').update(`${workflowName}:${opts.dedupeKey}`).digest('hex').slice(0, 24)}`
       : undefined
@@ -266,7 +266,7 @@ export class TaskWorkerEngine {
       workflowName,
       hedgeable: workflowName === 'scan-attachment',
       keepAlive,
-      timeoutMs: CORE_CONFIG.tasks.timeoutMs,
+      timeoutMs: CORGE_CONFIG.tasks.timeoutMs,
       ...(opts?.maxWaitMs !== undefined ? { maxWaitMs: opts.maxWaitMs } : {}),
       ...(opts?.signal ? { signal: opts.signal } : {}),
       ...(initRes.shouldDispatch ? { dispatch: dispatchFn } : {})
@@ -342,9 +342,9 @@ export class TaskWorkerEngine {
     expiresAt: Timestamp
   }): Promise<void> => {
     const error = opts.err instanceof Error ? opts.err.message : String(opts.err)
-    const nonRetryable = opts.err instanceof this.#core.errors.NonRetryableError
+    const nonRetryable = opts.err instanceof this.#corge.errors.NonRetryableError
     const errorCode =
-      opts.err instanceof this.#core.errors.NonRetryableError ? (opts.err.code ?? 'NON_RETRYABLE_ERROR') : undefined
+      opts.err instanceof this.#corge.errors.NonRetryableError ? (opts.err.code ?? 'NON_RETRYABLE_ERROR') : undefined
 
     await commitTaskCompensatingTx(opts.db, opts.docRef, opts.taskId, opts.claimedEpoch, opts.expiresAt)
     await opts.step.compensate()
@@ -372,13 +372,13 @@ export class TaskWorkerEngine {
   ): Promise<boolean> => {
     const { taskId, workflowName, isDev: rawIsDev } = payload
     const isDev = Boolean(rawIsDev)
-    const claim = await claimTaskEpochTx(db, docRef, payload, attempt, this.#core.internals.auth.resolveUserRole)
+    const claim = await claimTaskEpochTx(db, docRef, payload, attempt, this.#corge.internals.auth.resolveUserRole)
     if (claim.aborted) return true
 
     const { claimedEpoch, startedAt, expiresAt, effectiveParams, userId, userRole, steps, signals, compensatedSteps } =
       claim
     const baseMeta = { taskId, workflowName, userId, userRole }
-    const env = { ...this.#core.env, isDev }
+    const env = { ...this.#corge.env, isDev }
     const controller = new AbortController()
     const wfCtx: WorkflowContext = {
       taskId,
@@ -403,19 +403,19 @@ export class TaskWorkerEngine {
 
     try {
       const response = await this.runWithWorkflowContext({ workflow: wfCtx, step, env }, () =>
-        this.#core.internals.context.run({ env, userId, role: userRole, step }, () => wf.runTask(effectiveParams, step))
+        this.#corge.internals.context.run({ env, userId, role: userRole, step }, () => wf.runTask(effectiveParams, step))
       )
       await step.flush()
       await this.#commitCompletion({ db, docRef, baseMeta, taskId, claimedEpoch, response, steps, expiresAt, isDev })
       return true
     } catch (err) {
-      if (this.#core.errors.isStaleWorkerEpochError(err)) throw err
+      if (this.#corge.errors.isStaleWorkerEpochError(err)) throw err
       if (isTaskYieldSignal(err)) {
         await step.flush()
         await this.#commitYieldAndEnqueue({ db, docRef, baseMeta, taskId, workflowName, claimedEpoch, err, effectiveParams, steps, expiresAt, isDev, useQueue, deadlineSeconds })
         return true
       }
-      if (this.#core.errors.isNonRetryableError(err) || attempt >= CORE_CONFIG.tasks.maxAttempts - 1) {
+      if (this.#corge.errors.isNonRetryableError(err) || attempt >= CORGE_CONFIG.tasks.maxAttempts - 1) {
         await this.#commitErrorAndCompensate({ db, docRef, baseMeta, taskId, claimedEpoch, err, step, steps, expiresAt })
         return true
       }
@@ -434,7 +434,7 @@ export class TaskWorkerEngine {
     execOpts?: ExecuteWorkflowTaskOptions
   ): Promise<void> => {
     const { taskId, workflowName, isDev } = payload
-    const db = this.#core.db.firestore(Boolean(isDev))
+    const db = this.#corge.db.firestore(Boolean(isDev))
     const docRef = db.collection('_tasks').doc(taskId)
     const wf = workflowRegistry[workflowName]
 
@@ -444,16 +444,16 @@ export class TaskWorkerEngine {
         workflowName,
         status: 'errored',
         error: `Unknown workflow: ${workflowName}`,
-        expiresAt: Timestamp.fromMillis(Date.now() + CORE_CONFIG.tasks.ttlMs)
+        expiresAt: Timestamp.fromMillis(Date.now() + CORGE_CONFIG.tasks.ttlMs)
       })
       return
     }
 
     const deadlineSeconds = resolveTaskDeadline(workflowName, wf.deadlineSeconds)
-    const useQueue = CORE_CONFIG.tasks.useCloudTasks
+    const useQueue = CORGE_CONFIG.tasks.useCloudTasks
     const canYield = execOpts?.canYield ?? useQueue
 
-    for (let attempt = 0; attempt < CORE_CONFIG.tasks.maxAttempts; attempt++) {
+    for (let attempt = 0; attempt < CORGE_CONFIG.tasks.maxAttempts; attempt++) {
       const done = await this.#runSingleAttempt(db, docRef, payload, wf, attempt, deadlineSeconds, useQueue, canYield)
       if (done) return
     }

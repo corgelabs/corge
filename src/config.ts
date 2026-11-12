@@ -1,5 +1,5 @@
 import type { Context } from 'hono'
-import type { Core } from './index'
+import type { Corge } from './index'
 
 try {
   process.loadEnvFile()
@@ -113,7 +113,7 @@ export interface AuthEmailVariables {
 
 export type AuthFlowEmailHook = (
   payload: AuthEmailVariables,
-  context: { core: Core; env: AppBindings }
+  context: { corge: Corge; env: AppBindings }
 ) => Promise<boolean | Partial<AuthEmailVariables> | void>
 
 export interface AuthFlowConfigSpec {
@@ -265,7 +265,7 @@ const gcpProject = process.env.GCP_PROJECT ?? ''
 const region = 'me-central1'
 const defaultWebBaseUrl = `https://${gcpProject || 'app'}.web.app`
 
-export const CORE_CONFIG: CoreConfig = {
+export const CORGE_CONFIG: CoreConfig = {
   appName: gcpProject,
   gcpProject,
   region,
@@ -419,29 +419,29 @@ const mergeDeep = <T extends Record<string, any>>(target: T, source?: DeepPartia
 }
 
 export const defineConfig = (overrides?: DeepPartial<CoreConfig>): CoreConfig => {
-  if (overrides?.gcpProject && overrides.gcpProject !== CORE_CONFIG.gcpProject) {
+  if (overrides?.gcpProject && overrides.gcpProject !== CORGE_CONFIG.gcpProject) {
     const p = overrides.gcpProject
-    const r = overrides.region ?? CORE_CONFIG.region
-    CORE_CONFIG.appName = p
-    CORE_CONFIG.firestoreDbs = { prod: p, dev: `${p}-dev` }
-    CORE_CONFIG.storageBuckets = { prod: `${p}.firebasestorage.app`, dev: `${p}-dev` }
-    CORE_CONFIG.serviceAccount = `firebase-adminsdk-fbsvc@${p}.iam.gserviceaccount.com`
-    CORE_CONFIG.workerUris = {
+    const r = overrides.region ?? CORGE_CONFIG.region
+    CORGE_CONFIG.appName = p
+    CORGE_CONFIG.firestoreDbs = { prod: p, dev: `${p}-dev` }
+    CORGE_CONFIG.storageBuckets = { prod: `${p}.firebasestorage.app`, dev: `${p}-dev` }
+    CORGE_CONFIG.serviceAccount = `firebase-adminsdk-fbsvc@${p}.iam.gserviceaccount.com`
+    CORGE_CONFIG.workerUris = {
       prod: `https://${r}-${p}.cloudfunctions.net/${p}-tasks`,
       dev: `https://${r}-${p}.cloudfunctions.net/${p}-tasks-dev`
     }
-    CORE_CONFIG.queueBaseNames = {
+    CORGE_CONFIG.queueBaseNames = {
       prod: `${p}-tasks`,
       dev: `${p}-tasks-dev`
     }
-    CORE_CONFIG.emails.fromEmail = `no-reply@${p}.firebaseapp.com`
-    CORE_CONFIG.emails.fromName = p
-    CORE_CONFIG.emails.actionBaseUrl = `https://${p}.web.app`
-    CORE_CONFIG.payments.urls = {
+    CORGE_CONFIG.emails.fromEmail = `no-reply@${p}.firebaseapp.com`
+    CORGE_CONFIG.emails.fromName = p
+    CORGE_CONFIG.emails.actionBaseUrl = `https://${p}.web.app`
+    CORGE_CONFIG.payments.urls = {
       successUrl: `https://${p}.web.app/billing/success`,
       cancelUrl: `https://${p}.web.app/billing/cancel`,
       returnUrl: `https://${p}.web.app/billing`
     }
   }
-  return mergeDeep(CORE_CONFIG, overrides)
+  return mergeDeep(CORGE_CONFIG, overrides)
 }

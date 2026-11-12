@@ -2,9 +2,9 @@ import { createMcpHandler, McpServer } from '@modelcontextprotocol/server'
 import type { ModelMessage, streamText } from 'ai'
 import type { Context } from 'hono'
 import type { z } from 'zod'
-import { CORE_CONFIG, type AppEnv } from '../config'
+import { CORGE_CONFIG, type AppEnv } from '../config'
 import type { EntryId } from '../db'
-import { core } from '../index'
+import { corge } from '../index'
 import {
   listChatMessagesQuery,
   openaiCompletionsBody,
@@ -16,14 +16,14 @@ import {
 import { extractLatestUserPrompt, formatUsage, sanitizeToolInputSchema } from './utils'
 
 const listOpenaiModelsService = async () => {
-  const agents = core.internals.registry.getRegisteredAgents()
+  const agents = corge.internals.registry.getRegisteredAgents()
   return {
     object: 'list',
     data: Object.keys(agents).map((id) => ({
       id,
       object: 'model',
       created: Math.floor(Date.now() / 1000),
-      owned_by: CORE_CONFIG.appName
+      owned_by: CORGE_CONFIG.appName
     }))
   }
 }
@@ -99,24 +99,24 @@ const openaiCompletionsService = async ({
   input?: z.infer<typeof openaiCompletionsBody>
 }) => {
   const body = input ?? openaiCompletionsBody.parse(await c.req.json().catch(() => ({})))
-  const agents = core.internals.registry.getRegisteredAgents()
+  const agents = corge.internals.registry.getRegisteredAgents()
   const entries = Object.entries(agents)
-  if (entries.length === 0) return core.errors.httpError(404, 'No registered agents', 'NOT_FOUND')
+  if (entries.length === 0) return corge.errors.httpError(404, 'No registered agents', 'NOT_FOUND')
   const [defaultModel, defaultAgent] = entries[0]!
   const modelKey = body.model && body.model in agents ? body.model : defaultModel
   const agent = agents[modelKey] ?? defaultAgent
   const model = agent.name ?? modelKey
 
-  await core.internals.context.enforceAgentAccess(c, agent, 'openai.completions')
+  await corge.internals.context.enforceAgentAccess(c, agent, 'openai.completions')
 
   const { parts, modelMessages } = parseOpenaiMessages(body.messages)
   if (modelMessages.length === 0 && parts.length === 0) {
-    return core.errors.httpError(400, 'No supported messages', 'VALIDATION_ERROR')
+    return corge.errors.httpError(400, 'No supported messages', 'VALIDATION_ERROR')
   }
 
   const latestPrompt = extractLatestUserPrompt(modelMessages)
-  const role = core.internals.auth.resolveUserRole(userId, c.get('userRole'))
-  const { turn, userCreatedAtMs } = await core.internals.context.startChatStreamTurn({
+  const role = corge.internals.auth.resolveUserRole(userId, c.get('userRole'))
+  const { turn, userCreatedAtMs } = await corge.internals.context.startChatStreamTurn({
     userId,
     role,
     agent,
@@ -148,8 +148,8 @@ export const mcpRoute = async (
   userId: EntryId,
   mcpTools: Map<string, WorkflowToolSpec>
 ): Promise<Response> => {
-  const role = core.internals.auth.resolveUserRole(userId)
-  const server = new McpServer({ name: CORE_CONFIG.appName, version: '1.0.0' })
+  const role = corge.internals.auth.resolveUserRole(userId)
+  const server = new McpServer({ name: CORGE_CONFIG.appName, version: '1.0.0' })
   for (const [name, toolSpec] of mcpTools) {
     if (toolSpec.mcp !== true) continue
     server.registerTool(
@@ -160,8 +160,8 @@ export const mcpRoute = async (
       },
       async (input) => {
         try {
-          const step = core.internals.workflows.createStepRunner('workflow')
-          const result = await core.internals.context.run({ env: core.env, userId, role, step }, () =>
+          const step = corge.internals.workflows.createStepRunner('workflow')
+          const result = await corge.internals.context.run({ env: corge.env, userId, role, step }, () =>
             toolSpec.execute(input, userId)
           )
           return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] }
@@ -171,7 +171,7 @@ export const mcpRoute = async (
             content: [
               {
                 type: 'text' as const,
-                text: JSON.stringify(core.errors.buildErrorBody(msg, 502, 'WORKFLOW_ERROR'))
+                text: JSON.stringify(corge.errors.buildErrorBody(msg, 502, 'WORKFLOW_ERROR'))
               }
             ],
             isError: true
@@ -186,7 +186,7 @@ export const mcpRoute = async (
 export const coreChatRoutes = {
   'chat.list': {
     handler: async ({ c, userId }: { c: Context<AppEnv>; userId: EntryId }) =>
-      core.db.list(
+      corge.db.list(
         'chat',
         {
           userId,
@@ -213,26 +213,26 @@ export const coreChatRoutes = {
   },
   'chat.get': {
     handler: async ({ c }: { c: Context<AppEnv> }) => {
-      const chat = await core.db.read('chat', c.req.param('chatId') ?? '', false)
-      return chat ?? core.errors.httpError(404, 'Chat not found', 'NOT_FOUND')
+      const chat = await corge.db.read('chat', c.req.param('chatId') ?? '', false)
+      return chat ?? corge.errors.httpError(404, 'Chat not found', 'NOT_FOUND')
     }
   },
   'chat.messages': {
     handler: async ({ c }: { c: Context<AppEnv> }) => {
       const chatId = c.req.param('chatId') ?? ''
       const parsedQuery = listChatMessagesQuery.parse(c.req.query())
-      return core.chat.messages(chatId, { limit: parsedQuery.limit, before: parsedQuery.before })
+      return corge.chat.messages(chatId, { limit: parsedQuery.limit, before: parsedQuery.before })
     }
   },
   'chat.save': {
     input: saveChatBody,
     handler: ({ userId, input }: { userId: EntryId; input: z.infer<typeof saveChatBody> }) =>
-      core.internals.context.saveChat({ userId, input })
+      corge.internals.context.saveChat({ userId, input })
   },
   'chat.delete': {
     handler: async ({ c }: { c: Context<AppEnv> }) => {
       const chatId = c.req.param('chatId') ?? ''
-      await core.db.delete('chat', chatId)
+      await corge.db.delete('chat', chatId)
       return { id: chatId, deleted: true }
     }
   },
@@ -246,12 +246,12 @@ export const coreChatRoutes = {
       c: Context<AppEnv>
       userId: EntryId
       input?: z.infer<typeof streamChatBody>
-    }) => core.internals.context.streamChatSse({ c, userId, input })
+    }) => corge.internals.context.streamChatSse({ c, userId, input })
   },
   'chat.cancel': {
     handler: ({ c }: { c: Context<AppEnv> }) => {
       const chatId = c.req.param('chatId') ?? ''
-      return core.chat.cancel(chatId)
+      return corge.chat.cancel(chatId)
     }
   },
   'openai.models': {

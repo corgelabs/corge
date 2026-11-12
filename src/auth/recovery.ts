@@ -1,7 +1,7 @@
 import { randomBytes, randomInt } from 'node:crypto'
 import type { UserRecord } from 'firebase-admin/auth'
 import type { EntryId } from '../db'
-import type { Core } from '../index'
+import type { Corge } from '../index'
 import {
   completeAccountRecoveryBody,
   forgotPasswordBody,
@@ -26,22 +26,22 @@ import type { AuthSessionEngine } from './session'
 import { hashToken, normalizeDate, safeEqualHex } from './utils'
 
 export class AuthRecoveryEngine {
-  readonly #core: Core
+  readonly #corge: Corge
   readonly #session: AuthSessionEngine
 
-  constructor(coreClient: Core, session: AuthSessionEngine) {
-    this.#core = coreClient
+  constructor(corgeClient: Corge, session: AuthSessionEngine) {
+    this.#corge = corgeClient
     this.#session = session
   }
 
   getLastDevEmail = (to: string, purpose: AuthEmailPurpose): TransactionalEmailPayload | undefined =>
-    this.#core.internals.emails.getLastDevEmail(to, purpose)
+    this.#corge.internals.emails.getLastDevEmail(to, purpose)
 
   #issueAuthToken = async (
     userId: EntryId,
     purpose: AuthTokenPurpose,
     targetEmail: string,
-    expiresInMinutes = this.#core.config.emails.otpTtlMinutes
+    expiresInMinutes = this.#corge.config.emails.otpTtlMinutes
   ): Promise<TransactionalEmailPayload> => {
     const normalizedTarget = targetEmail.trim().toLowerCase()
     const code = String(randomInt(100_000, 1_000_000))
@@ -52,7 +52,7 @@ export class AuthRecoveryEngine {
     const expiresAt = new Date(now.getTime() + expiresInMinutes * 60_000)
     const docId = `${userId}_${purpose}`
 
-    await this.#core.db
+    await this.#corge.db
       .firestore()
       .collection('auth_tokens')
       .doc(docId)
@@ -79,7 +79,7 @@ export class AuthRecoveryEngine {
       expiresInMinutes,
       userId
     }
-    await this.#core.internals.emails.dispatchAuthEmail(payload)
+    await this.#corge.internals.emails.dispatchAuthEmail(payload)
     return payload
   }
 
@@ -89,9 +89,9 @@ export class AuthRecoveryEngine {
     expectedTargetEmail: string,
     codeOrToken: string
   ): Promise<void> => {
-    const db = this.#core.db.firestore()
+    const db = this.#corge.db.firestore()
     const docRef = db.collection('auth_tokens').doc(`${userId}_${purpose}`)
-    const maxAttempts = this.#core.config.emails.maxVerifyAttempts
+    const maxAttempts = this.#corge.config.emails.maxVerifyAttempts
     const normalizedExpected = expectedTargetEmail.trim().toLowerCase()
     const candidateHash = hashToken(codeOrToken)
 
@@ -136,15 +136,15 @@ export class AuthRecoveryEngine {
     })
 
     if (outcome === 'valid') return
-    if (outcome === 'expired') this.#core.errors.httpError(400, 'Verification token has expired', 'TOKEN_EXPIRED')
+    if (outcome === 'expired') this.#corge.errors.httpError(400, 'Verification token has expired', 'TOKEN_EXPIRED')
     if (outcome === 'max_attempts') {
-      this.#core.errors.httpError(
+      this.#corge.errors.httpError(
         400,
         'Maximum verification attempts exceeded; token invalidated',
         'TOKEN_MAX_ATTEMPTS_EXCEEDED'
       )
     }
-    this.#core.errors.httpError(400, 'Invalid or expired verification code', 'INVALID_TOKEN')
+    this.#corge.errors.httpError(400, 'Invalid or expired verification code', 'INVALID_TOKEN')
   }
 
   #requireUserByEmail = async (
@@ -159,7 +159,7 @@ export class AuthRecoveryEngine {
       .getUserByEmail(normalizedEmail)
       .catch(() => undefined)
     if (!user || !user.email || (rejectDisabled && user.disabled)) {
-      return this.#core.errors.httpError(400, errMessage, errCode)
+      return this.#corge.errors.httpError(400, errMessage, errCode)
     }
     return { user, normalizedEmail }
   }
@@ -167,7 +167,7 @@ export class AuthRecoveryEngine {
   #revokeAllUserSessions = async (uid: EntryId): Promise<void> => {
     this.#session.evictUserTokens(uid)
     await Promise.all([
-      this.#session.recordRevocation(uid, this.#core.env.isDev),
+      this.#session.recordRevocation(uid, this.#corge.env.isDev),
       this.#session
         .getAuth()
         .revokeRefreshTokens(uid)
@@ -176,17 +176,17 @@ export class AuthRecoveryEngine {
   }
 
   sendVerificationEmail = async (
-    userId: EntryId = this.#core.userId
+    userId: EntryId = this.#corge.userId
   ): Promise<{ sent: true; expiresInMinutes: number }> => {
-    if (!userId) return this.#core.errors.httpError(401, 'Unauthorized', 'UNAUTHORIZED')
+    if (!userId) return this.#corge.errors.httpError(401, 'Unauthorized', 'UNAUTHORIZED')
     const user = await this.#session
       .getAuth()
       .getUser(userId)
       .catch(() => undefined)
     if (!user || !user.email) {
-      return this.#core.errors.httpError(400, 'User does not have a primary email address', 'MISSING_EMAIL')
+      return this.#corge.errors.httpError(400, 'User does not have a primary email address', 'MISSING_EMAIL')
     }
-    const expiresInMinutes = this.#core.config.emails.otpTtlMinutes
+    const expiresInMinutes = this.#corge.config.emails.otpTtlMinutes
     await this.#issueAuthToken(user.uid, 'verify_email', user.email, expiresInMinutes)
     return { sent: true, expiresInMinutes }
   }
@@ -199,7 +199,7 @@ export class AuthRecoveryEngine {
     metaPatch: Parameters<AuthSessionEngine['upsertUserAuthMeta']>[1]
   ): Promise<void> => {
     await this.#consumeAuthToken(uid, purpose, targetEmail, codeOrToken)
-    await this.#session.upsertUserAuthMeta(uid, metaPatch, this.#core.env.isDev)
+    await this.#session.upsertUserAuthMeta(uid, metaPatch, this.#corge.env.isDev)
   }
 
   verifyEmail = async (raw: VerifyEmailInput): Promise<{ verified: true; userId: string }> => {
@@ -226,7 +226,7 @@ export class AuthRecoveryEngine {
       .getUserByEmail(normalizedEmail)
       .catch(() => undefined)
     if (user && user.email && !user.disabled) {
-      await this.#issueAuthToken(user.uid, 'reset_password', user.email, this.#core.config.emails.otpTtlMinutes)
+      await this.#issueAuthToken(user.uid, 'reset_password', user.email, this.#corge.config.emails.otpTtlMinutes)
     }
     return { sent: true }
   }
@@ -242,20 +242,20 @@ export class AuthRecoveryEngine {
 
   setRecoveryEmail = async (
     raw: SetRecoveryEmailInput,
-    userId: EntryId = this.#core.userId
+    userId: EntryId = this.#corge.userId
   ): Promise<{ recoveryEmail: string; recoveryEmailVerified: false; sent: true }> => {
-    if (!userId) return this.#core.errors.httpError(401, 'Unauthorized', 'UNAUTHORIZED')
+    if (!userId) return this.#corge.errors.httpError(401, 'Unauthorized', 'UNAUTHORIZED')
     const { recoveryEmail } = setRecoveryEmailBody.parse(raw)
     const normalizedRecovery = recoveryEmail.trim().toLowerCase()
     const user = await this.#session
       .getAuth()
       .getUser(userId)
       .catch(() => undefined)
-    if (!user) return this.#core.errors.httpError(404, 'User not found', 'NOT_FOUND')
+    if (!user) return this.#corge.errors.httpError(404, 'User not found', 'NOT_FOUND')
 
     const primaryEmail = (user.email ?? '').trim().toLowerCase()
     if (primaryEmail && normalizedRecovery === primaryEmail) {
-      return this.#core.errors.httpError(
+      return this.#corge.errors.httpError(
         400,
         'Recovery email must be different from primary email',
         'INVALID_RECOVERY_EMAIL'
@@ -269,26 +269,26 @@ export class AuthRecoveryEngine {
         recoveryEmail: normalizedRecovery,
         recoveryEmailVerified: false
       },
-      this.#core.env.isDev
+      this.#corge.env.isDev
     )
     await this.#issueAuthToken(
       user.uid,
       'verify_recovery_email',
       normalizedRecovery,
-      this.#core.config.emails.otpTtlMinutes
+      this.#corge.config.emails.otpTtlMinutes
     )
     return { recoveryEmail: normalizedRecovery, recoveryEmailVerified: false, sent: true }
   }
 
   verifyRecoveryEmail = async (
     raw: VerifyRecoveryEmailInput,
-    userId: EntryId = this.#core.userId
+    userId: EntryId = this.#corge.userId
   ): Promise<{ recoveryEmail: string; recoveryEmailVerified: true; verified: true }> => {
-    if (!userId) return this.#core.errors.httpError(401, 'Unauthorized', 'UNAUTHORIZED')
+    if (!userId) return this.#corge.errors.httpError(401, 'Unauthorized', 'UNAUTHORIZED')
     const { codeOrToken } = verifyRecoveryEmailBody.parse(raw)
-    const meta = await this.#session.getUserAuthMeta(userId, this.#core.env.isDev)
+    const meta = await this.#session.getUserAuthMeta(userId, this.#corge.env.isDev)
     if (!meta?.recoveryEmail) {
-      return this.#core.errors.httpError(
+      return this.#corge.errors.httpError(
         400,
         'No recovery email configured for this account',
         'MISSING_RECOVERY_EMAIL'
@@ -309,13 +309,13 @@ export class AuthRecoveryEngine {
       .getUserByEmail(normPrimary)
       .catch(() => undefined)
     if (user && !user.disabled && (user.email ?? '').trim().toLowerCase() === normPrimary) {
-      const meta = await this.#session.getUserAuthMeta(user.uid, this.#core.env.isDev)
+      const meta = await this.#session.getUserAuthMeta(user.uid, this.#corge.env.isDev)
       if (meta?.recoveryEmail === normRecovery && meta.recoveryEmailVerified === true) {
         await this.#issueAuthToken(
           user.uid,
           'account_recovery',
           normRecovery,
-          this.#core.config.emails.recoveryOtpTtlMinutes
+          this.#corge.config.emails.recoveryOtpTtlMinutes
         )
       }
     }
@@ -338,12 +338,12 @@ export class AuthRecoveryEngine {
       true
     )
     if ((user.email ?? '').trim().toLowerCase() !== normPrimary) {
-      return this.#core.errors.httpError(400, 'Invalid account recovery request or token', 'INVALID_RECOVERY_REQUEST')
+      return this.#corge.errors.httpError(400, 'Invalid account recovery request or token', 'INVALID_RECOVERY_REQUEST')
     }
 
-    const meta = await this.#session.getUserAuthMeta(user.uid, this.#core.env.isDev)
+    const meta = await this.#session.getUserAuthMeta(user.uid, this.#corge.env.isDev)
     if (!meta || meta.recoveryEmail !== normRecovery || meta.recoveryEmailVerified !== true) {
-      return this.#core.errors.httpError(400, 'Invalid account recovery request or token', 'INVALID_RECOVERY_REQUEST')
+      return this.#corge.errors.httpError(400, 'Invalid account recovery request or token', 'INVALID_RECOVERY_REQUEST')
     }
 
     await this.#consumeAndUpsertMeta(user.uid, 'account_recovery', normRecovery, codeOrToken, {

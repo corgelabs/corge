@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { CORE_CONFIG } from '../config'
+import { CORGE_CONFIG } from '../config'
 import {
   fileRef,
   fileScan,
@@ -39,7 +39,7 @@ export const fileBody = z
   .object({
     bytes: z
       .instanceof(Uint8Array)
-      .refine((b) => b.byteLength > 0 && b.byteLength <= CORE_CONFIG.limits.maxFileBytes, 'File size must be 1B..20MiB'),
+      .refine((b) => b.byteLength > 0 && b.byteLength <= CORGE_CONFIG.limits.maxFileBytes, 'File size must be 1B..20MiB'),
     name: z.string().min(1).max(256),
     type: fileType
   })
@@ -57,7 +57,7 @@ export const signedUploadInput = z.object({
     .number()
     .int()
     .positive()
-    .refine((s) => s <= CORE_CONFIG.limits.maxFileBytes, 'File size exceeds maxFileBytes')
+    .refine((s) => s <= CORGE_CONFIG.limits.maxFileBytes, 'File size exceeds maxFileBytes')
     .optional()
 })
 export type SignedUploadInput = z.infer<typeof signedUploadInput>

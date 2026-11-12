@@ -1,8 +1,8 @@
 import { createHash, createPublicKey, verify as cryptoVerify, type JsonWebKey } from 'node:crypto'
 import type { UserRecord } from 'firebase-admin/auth'
 import { HTTPException } from 'hono/http-exception'
-import { CORE_CONFIG } from '../config'
-import type { Core } from '../index'
+import { CORGE_CONFIG } from '../config'
+import type { Corge } from '../index'
 import {
   socialSignInInput,
   type AuthUser,
@@ -29,11 +29,11 @@ const JWKS_URLS: Record<OAuthProvider, string> = {
 let testOidcPublicKeyJwk: (JsonWebKey & { kid?: string }) | null = null
 
 export class AuthOidcEngine {
-  readonly #core: Core
+  readonly #corge: Corge
   readonly #session: AuthSessionEngine
 
-  constructor(coreClient: Core, session: AuthSessionEngine) {
-    this.#core = coreClient
+  constructor(corgeClient: Corge, session: AuthSessionEngine) {
+    this.#corge = corgeClient
     this.#session = session
   }
 
@@ -60,12 +60,12 @@ export class AuthOidcEngine {
   #verifyNonceClaim = (rawNonce: string | undefined, tokenNonce: unknown): void => {
     if (!rawNonce) return
     if (typeof tokenNonce !== 'string' || !tokenNonce) {
-      this.#core.errors.httpError(401, 'Missing OIDC nonce claim in ID token', 'INVALID_NONCE')
+      this.#corge.errors.httpError(401, 'Missing OIDC nonce claim in ID token', 'INVALID_NONCE')
     }
     const sha256Hex = createHash('sha256').update(rawNonce).digest('hex')
     const sha256B64 = createHash('sha256').update(rawNonce).digest('base64url')
     if (tokenNonce !== rawNonce && tokenNonce !== sha256Hex && tokenNonce !== sha256B64) {
-      this.#core.errors.httpError(401, 'OIDC nonce mismatch', 'INVALID_NONCE')
+      this.#corge.errors.httpError(401, 'OIDC nonce mismatch', 'INVALID_NONCE')
     }
   }
 
@@ -89,17 +89,17 @@ export class AuthOidcEngine {
       }
     }
     if (!jwk) {
-      this.#core.errors.httpError(401, 'Unable to find matching OIDC JWK for token kid', 'INVALID_ID_TOKEN')
+      this.#corge.errors.httpError(401, 'Unable to find matching OIDC JWK for token kid', 'INVALID_ID_TOKEN')
     }
     try {
       const pubKey = createPublicKey({ key: jwk!, format: 'jwk' })
       const signingInput = Buffer.from(`${headerB64}.${payloadB64}`, 'utf8')
       const signature = Buffer.from(sigB64, 'base64url')
       const valid = cryptoVerify('RSA-SHA256', signingInput, pubKey, signature)
-      if (!valid) this.#core.errors.httpError(401, 'Invalid OIDC ID token signature', 'INVALID_ID_TOKEN')
+      if (!valid) this.#corge.errors.httpError(401, 'Invalid OIDC ID token signature', 'INVALID_ID_TOKEN')
     } catch (err) {
       if (err instanceof HTTPException) throw err
-      this.#core.errors.httpError(401, 'OIDC signature verification failed', 'INVALID_ID_TOKEN')
+      this.#corge.errors.httpError(401, 'OIDC signature verification failed', 'INVALID_ID_TOKEN')
     }
   }
 
@@ -110,7 +110,7 @@ export class AuthOidcEngine {
     isDev?: boolean
   ): Promise<VerifiedOidcClaims> => {
     const parts = idToken.split('.')
-    if (parts.length !== 3) return this.#core.errors.httpError(401, 'Malformed OIDC ID token', 'INVALID_ID_TOKEN')
+    if (parts.length !== 3) return this.#corge.errors.httpError(401, 'Malformed OIDC ID token', 'INVALID_ID_TOKEN')
     const [headerB64, payloadB64, sigB64] = parts as [string, string, string]
 
     let header: { kid?: string; alg?: string }
@@ -119,16 +119,16 @@ export class AuthOidcEngine {
       header = JSON.parse(Buffer.from(headerB64, 'base64url').toString('utf8')) as { kid?: string; alg?: string }
       payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8')) as Record<string, unknown>
     } catch {
-      return this.#core.errors.httpError(401, 'Malformed OIDC ID token JSON', 'INVALID_ID_TOKEN')
+      return this.#corge.errors.httpError(401, 'Malformed OIDC ID token JSON', 'INVALID_ID_TOKEN')
     }
 
     if (header.alg !== 'RS256') {
-      return this.#core.errors.httpError(401, 'Unsupported OIDC signature algorithm', 'INVALID_ID_TOKEN')
+      return this.#corge.errors.httpError(401, 'Unsupported OIDC signature algorithm', 'INVALID_ID_TOKEN')
     }
 
     const exp = typeof payload.exp === 'number' ? payload.exp : 0
     if (exp * 1000 <= Date.now()) {
-      return this.#core.errors.httpError(401, 'OIDC ID token has expired', 'TOKEN_EXPIRED')
+      return this.#corge.errors.httpError(401, 'OIDC ID token has expired', 'TOKEN_EXPIRED')
     }
 
     const iss = String(payload.iss ?? '')
@@ -137,16 +137,16 @@ export class AuthOidcEngine {
         ? iss === 'https://accounts.google.com' || iss === 'accounts.google.com'
         : iss === 'https://appleid.apple.com'
     if (!validIss) {
-      return this.#core.errors.httpError(401, `Invalid OIDC issuer for ${provider}: ${iss}`, 'INVALID_ISSUER')
+      return this.#corge.errors.httpError(401, `Invalid OIDC issuer for ${provider}: ${iss}`, 'INVALID_ISSUER')
     }
 
     const allowedClientIds =
-      provider === 'google' ? CORE_CONFIG.auth.oauth?.googleClientIds : CORE_CONFIG.auth.oauth?.appleClientIds
+      provider === 'google' ? CORGE_CONFIG.auth.oauth?.googleClientIds : CORGE_CONFIG.auth.oauth?.appleClientIds
     if (allowedClientIds && allowedClientIds.length > 0) {
       const aud = payload.aud
       const audList = Array.isArray(aud) ? aud.map(String) : [String(aud ?? '')]
       if (!audList.some((a) => allowedClientIds.includes(a))) {
-        return this.#core.errors.httpError(401, `Invalid OIDC audience for ${provider}`, 'INVALID_AUDIENCE')
+        return this.#corge.errors.httpError(401, `Invalid OIDC audience for ${provider}`, 'INVALID_AUDIENCE')
       }
     }
 
@@ -161,7 +161,7 @@ export class AuthOidcEngine {
     )
 
     const sub = String(payload.sub ?? '').trim()
-    if (!sub) return this.#core.errors.httpError(401, 'Missing OIDC subject (sub) claim', 'INVALID_ID_TOKEN')
+    if (!sub) return this.#corge.errors.httpError(401, 'Missing OIDC subject (sub) claim', 'INVALID_ID_TOKEN')
     const email = typeof payload.email === 'string' && payload.email ? payload.email.trim().toLowerCase() : null
     const emailVerified = payload.email_verified === true || payload.email_verified === 'true'
 
@@ -233,7 +233,7 @@ export class AuthOidcEngine {
     isDev: boolean
   ): Promise<{ userRecord: UserRecord; isNewUser: boolean }> => {
     const auth = this.#session.getAuth()
-    const db = this.#core.db.firestore(isDev)
+    const db = this.#corge.db.firestore(isDev)
     let userRecord: UserRecord | undefined
 
     const existingProviderSnap = await db
@@ -282,13 +282,13 @@ export class AuthOidcEngine {
   #maybeSendWelcomeEmail = async (userId: string, email?: string | null): Promise<void> => {
     const normalized = email?.trim().toLowerCase()
     if (!normalized) return
-    const flowCfg = this.#core.config.emails.authFlows.welcome
+    const flowCfg = this.#corge.config.emails.authFlows.welcome
     const hasWelcome =
-      Boolean(this.#core.internals.registry.getEmailTemplate(flowCfg?.templateId ?? 'welcome')) ||
+      Boolean(this.#corge.internals.registry.getEmailTemplate(flowCfg?.templateId ?? 'welcome')) ||
       Boolean(flowCfg?.onSend) ||
-      Boolean(this.#core.config.emails.onAuthEmail)
+      Boolean(this.#corge.config.emails.onAuthEmail)
     if (!hasWelcome) return
-    await this.#core.internals.emails
+    await this.#corge.internals.emails
       .dispatchAuthEmail({
         to: normalized,
         purpose: 'welcome',
@@ -302,11 +302,11 @@ export class AuthOidcEngine {
 
   signInSocial = async (raw: SocialSignInInput): Promise<{ user: AuthUser; sessionCookie: string }> => {
     const { provider, idToken, nonce, accessToken, profile } = socialSignInInput.parse(raw)
-    const targetIsDev = this.#core.env.isDev
+    const targetIsDev = this.#corge.env.isDev
 
     const oidcClaims = await this.verifyOidcIdToken(provider, idToken, nonce, targetIsDev).catch(async (err) => {
       if (err instanceof HTTPException) throw err
-      const idp = await this.#tryIdentityToolkitIdp(this.#core.env.WEB_API_KEY, provider, idToken, nonce, accessToken)
+      const idp = await this.#tryIdentityToolkitIdp(this.#corge.env.WEB_API_KEY, provider, idToken, nonce, accessToken)
       if (!idp) throw err
       return {
         sub: idp.federatedId ?? idp.localId,
@@ -385,7 +385,7 @@ export class AuthOidcEngine {
     }>(endpoint, key, { email, password, ...(displayName ? { displayName } : {}), returnSecureToken: true })
     if (!ok || !data.idToken) {
       const msg = data.error?.message ?? 'AUTH_FAILED'
-      return this.#core.errors.httpError(msg === 'EMAIL_EXISTS' ? 409 : 401, msg, msg)
+      return this.#corge.errors.httpError(msg === 'EMAIL_EXISTS' ? 409 : 401, msg, msg)
     }
     return data as { idToken: string; localId: string; displayName?: string }
   }
@@ -396,7 +396,7 @@ export class AuthOidcEngine {
     name?: string
   ): Promise<{ user: AuthUser; sessionCookie: string }> => {
     const { idToken } = await this.#identityToolkit(
-      this.#core.env.WEB_API_KEY,
+      this.#corge.env.WEB_API_KEY,
       'accounts:signUp',
       email,
       password,
@@ -409,7 +409,7 @@ export class AuthOidcEngine {
 
   signInEmail = async (email: string, password: string): Promise<{ user: AuthUser; sessionCookie: string }> => {
     const { idToken, displayName } = await this.#identityToolkit(
-      this.#core.env.WEB_API_KEY,
+      this.#corge.env.WEB_API_KEY,
       'accounts:signInWithPassword',
       email,
       password

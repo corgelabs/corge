@@ -1,9 +1,9 @@
-import { CORE_CONFIG } from '../config'
+import { CORGE_CONFIG } from '../config'
 import { fileRef } from '../db'
 
 export const canAccessFile = (userId: string, ref: string, role?: string): boolean =>
   role === 'admin' ||
-  userId === CORE_CONFIG.auth.adminUserId ||
+  userId === CORGE_CONFIG.auth.adminUserId ||
   (fileRef.safeParse(ref).success && ref.slice(0, -25) === userId)
 
 export const hasValidMagicBytes = (type: string, bytes: Uint8Array): boolean => {

@@ -1,9 +1,9 @@
 import { getAuth, type Auth } from 'firebase-admin/auth'
 import { setCookie } from 'hono/cookie'
 import type { Context } from 'hono'
-import { CORE_CONFIG, type AppEnv, type DbRole } from '../config'
+import { CORGE_CONFIG, type AppEnv, type DbRole } from '../config'
 import type { EntryId } from '../db'
-import type { Core } from '../index'
+import type { Corge } from '../index'
 import type { AuthUser, CachedTokenEntry, UserAuthMetaRecord } from './schema'
 import { fetchIdentityToolkit, normalizeDate, parseLinkedProviders, resolveTokenRole } from './utils'
 
@@ -28,14 +28,14 @@ const revocationWatermarks: [RevocationWatermarkState, RevocationWatermarkState]
 let bgSyncTimer: ReturnType<typeof setInterval> | null = null
 
 export class AuthSessionEngine {
-  readonly #core: Core
+  readonly #corge: Corge
 
-  constructor(coreClient: Core) {
-    this.#core = coreClient
+  constructor(corgeClient: Corge) {
+    this.#corge = corgeClient
   }
 
   getAuth = (): Auth => {
-    this.#core.internals.registry.ensureFirebaseApp()
+    this.#corge.internals.registry.ensureFirebaseApp()
     return getAuth()
   }
 
@@ -49,13 +49,13 @@ export class AuthSessionEngine {
       authWarmPromise = Promise.all([
         rawAuth.idTokenVerifier?.signatureVerifier?.keyFetcher?.fetchPublicKeys?.(),
         rawAuth.sessionCookieVerifier?.signatureVerifier?.keyFetcher?.fetchPublicKeys?.(),
-        auth.getUser(CORE_CONFIG.auth.adminUserId).catch(() => {})
+        auth.getUser(CORGE_CONFIG.auth.adminUserId).catch(() => {})
       ]).catch(() => {})
     }
     return authWarmPromise
   }
 
-  resolveDefaultIsDev = (isDev?: boolean): boolean => isDev ?? this.#core.env.isDev
+  resolveDefaultIsDev = (isDev?: boolean): boolean => isDev ?? this.#corge.env.isDev
 
   #ensureBackgroundRevocationSync = (): void => {
     if (bgSyncTimer) return
@@ -67,7 +67,7 @@ export class AuthSessionEngine {
         }
         return
       }
-      const defaultIsDev = this.#core.env.isDev
+      const defaultIsDev = this.#corge.env.isDev
       for (const isDevSlot of [false, true] as const) {
         const idx = isDevSlot ? 1 : 0
         if (isDevSlot === defaultIsDev || revocationWatermarks[idx].lastSyncedAt > 0) {
@@ -81,13 +81,13 @@ export class AuthSessionEngine {
   setTokenCache = (
     token: string,
     uid: EntryId,
-    role: DbRole = uid === CORE_CONFIG.auth.adminUserId ? 'admin' : 'user',
-    exp = Date.now() + CORE_CONFIG.auth.tokenCacheTtlMs,
+    role: DbRole = uid === CORGE_CONFIG.auth.adminUserId ? 'admin' : 'user',
+    exp = Date.now() + CORGE_CONFIG.auth.tokenCacheTtlMs,
     strictVerified = false,
     emailVerified = false
   ): void => {
     const existing = tokenCache.get(token)
-    if (!existing && tokenCache.size >= CORE_CONFIG.auth.tokenCacheMaxSize) {
+    if (!existing && tokenCache.size >= CORGE_CONFIG.auth.tokenCacheMaxSize) {
       tokenCache.delete(tokenCache.keys().next().value!)
     }
     tokenCache.set(token, {
@@ -112,13 +112,13 @@ export class AuthSessionEngine {
   recordRevocation = async (uid: EntryId, isDev?: boolean): Promise<number> => {
     let revokedAt = Date.now()
     this.evictUserTokens(uid)
-    const ttlMs = CORE_CONFIG.auth.tokenCacheTtlMs
+    const ttlMs = CORGE_CONFIG.auth.tokenCacheTtlMs
     const targetIsDev = this.resolveDefaultIsDev(isDev)
     const localState = revocationWatermarks[targetIsDev ? 1 : 0]
     localState.revokedUsers[uid] = revokedAt
     localState.lastSyncedAt = revokedAt
 
-    const db = this.#core.db.firestore(targetIsDev)
+    const db = this.#corge.db.firestore(targetIsDev)
     const docRef = db.doc(AUTH_REVOCATIONS_DOC_PATH)
     try {
       await db.runTransaction(async (tx) => {
@@ -147,7 +147,7 @@ export class AuthSessionEngine {
     delete localState.revokedUsers[uid]
     localState.lastSyncedAt = Date.now()
 
-    const db = this.#core.db.firestore(targetIsDev)
+    const db = this.#corge.db.firestore(targetIsDev)
     const docRef = db.doc(AUTH_REVOCATIONS_DOC_PATH)
     try {
       await db.runTransaction(async (tx) => {
@@ -168,11 +168,11 @@ export class AuthSessionEngine {
     if (!force && state.lastSyncedAt > 0 && now - state.lastSyncedAt < REVOCATION_SYNC_TTL_MS) {
       return state.revokedUsers
     }
-    return this.#core.internals.resilience.singleflight(
+    return this.#corge.internals.resilience.singleflight(
       `auth:revocations:${targetIsDev ? 'dev' : 'prod'}`,
       async () => {
         try {
-          const snap = await this.#core.db.firestore(targetIsDev).doc(AUTH_REVOCATIONS_DOC_PATH).get()
+          const snap = await this.#corge.db.firestore(targetIsDev).doc(AUTH_REVOCATIONS_DOC_PATH).get()
           const remote = (snap.data()?.revokedUsers as Record<string, number> | undefined) ?? {}
           state.revokedUsers = remote
           state.lastSyncedAt = Date.now()
@@ -210,7 +210,7 @@ export class AuthSessionEngine {
     if (hit && hit.exp > Date.now() && (!checkRevoked || hit.strictVerified)) {
       return { uid: hit.uid, role: hit.role, emailVerified: Boolean(hit.emailVerified) }
     }
-    return this.#core.internals.resilience.singleflight(
+    return this.#corge.internals.resilience.singleflight(
       `auth:${isCookie ? 'c' : 'b'}:${checkRevoked ? '1' : '0'}:${token}`,
       async () => {
         const auth = this.getAuth()
@@ -223,7 +223,7 @@ export class AuthSessionEngine {
           token,
           d.uid,
           role,
-          Math.min(d.exp * 1000, Date.now() + CORE_CONFIG.auth.tokenCacheTtlMs),
+          Math.min(d.exp * 1000, Date.now() + CORGE_CONFIG.auth.tokenCacheTtlMs),
           checkRevoked,
           emailVerified
         )
@@ -235,7 +235,7 @@ export class AuthSessionEngine {
   getUserAuthMeta = async (uid: EntryId, isDev?: boolean): Promise<UserAuthMetaRecord | undefined> => {
     if (!uid) return undefined
     try {
-      const snap = await this.#core.db
+      const snap = await this.#corge.db
         .firestore(this.resolveDefaultIsDev(isDev))
         .collection('user_auth_meta')
         .doc(uid)
@@ -270,7 +270,7 @@ export class AuthSessionEngine {
     patch: Partial<UserAuthMetaRecord>,
     isDev?: boolean
   ): Promise<UserAuthMetaRecord> => {
-    const db = this.#core.db.firestore(this.resolveDefaultIsDev(isDev))
+    const db = this.#corge.db.firestore(this.resolveDefaultIsDev(isDev))
     const docRef = db.collection('user_auth_meta').doc(uid)
     const now = new Date()
     let merged: UserAuthMetaRecord = { ...patch, updatedAt: now }
@@ -322,12 +322,12 @@ export class AuthSessionEngine {
   }
 
   setSessionCookie = (c: Context<AppEnv>, sessionCookie: string): void => {
-    setCookie(c, CORE_CONFIG.auth.sessionCookie, sessionCookie, {
+    setCookie(c, CORGE_CONFIG.auth.sessionCookie, sessionCookie, {
       httpOnly: true,
       secure: c.req.header('x-forwarded-proto') === 'https' || c.req.url.startsWith('https://'),
       path: '/',
       sameSite: 'Lax',
-      maxAge: Math.floor(CORE_CONFIG.auth.sessionExpiresInMs / 1000)
+      maxAge: Math.floor(CORGE_CONFIG.auth.sessionExpiresInMs / 1000)
     })
   }
 
@@ -343,8 +343,8 @@ export class AuthSessionEngine {
     profile?: { email?: string; name?: string; avatarUrl?: string; emailVerified?: boolean }
   ): Promise<{ user: AuthUser; sessionCookie: string }> => {
     const auth = this.getAuth()
-    const cacheTtl = CORE_CONFIG.auth.tokenCacheTtlMs
-    const sessionExpiresIn = CORE_CONFIG.auth.sessionExpiresInMs
+    const cacheTtl = CORGE_CONFIG.auth.tokenCacheTtlMs
+    const sessionExpiresIn = CORGE_CONFIG.auth.sessionExpiresInMs
     const now = new Date()
     const [ { decoded, meta }, sessionCookie ] = await Promise.all([
       auth.verifyIdToken(idToken, true).then(async (d) => {
@@ -355,7 +355,7 @@ export class AuthSessionEngine {
         if (profile?.name && d.name !== profile.name) updates.displayName = profile.name
         if (profile?.avatarUrl && d.picture !== profile.avatarUrl) updates.photoURL = profile.avatarUrl
         const [m] = await Promise.all([
-          this.getUserAuthMeta(d.uid, this.#core.env.isDev),
+          this.getUserAuthMeta(d.uid, this.#corge.env.isDev),
           Object.keys(updates).length > 0 ? auth.updateUser(d.uid, updates).catch(() => {}) : Promise.resolve()
         ])
         return { decoded: d, meta: m }
@@ -390,12 +390,12 @@ export class AuthSessionEngine {
     const customToken = await this.getAuth().createCustomToken(uid)
     const { ok, data } = await fetchIdentityToolkit<{ idToken?: string; error?: { message?: string } }>(
       'accounts:signInWithCustomToken',
-      this.#core.env.WEB_API_KEY,
+      this.#corge.env.WEB_API_KEY,
       { token: customToken, returnSecureToken: true }
     )
     if (!ok || !data.idToken) {
       const msg = data.error?.message ?? 'CUSTOM_TOKEN_EXCHANGE_FAILED'
-      return this.#core.errors.httpError(401, msg, msg)
+      return this.#corge.errors.httpError(401, msg, msg)
     }
     return this.createSession(data.idToken, profile)
   }
@@ -406,7 +406,7 @@ export class AuthSessionEngine {
     this.evictUserTokens(uid)
     tokenCache.delete(sessionCookie)
     await Promise.all([
-      this.recordRevocation(uid, this.#core.env.isDev),
+      this.recordRevocation(uid, this.#corge.env.isDev),
       auth.revokeRefreshTokens(uid).catch(() => {}),
       ...(deleteUser ? [auth.updateUser(uid, { disabled: true }).catch(() => {})] : [])
     ])

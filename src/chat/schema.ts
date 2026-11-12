@@ -4,7 +4,7 @@ import { z } from 'zod'
 import type { AttachmentTypesMap } from '../attachments'
 import type { AppBindings, DbRole, RateLimitConfig } from '../config'
 import { entryId, fileRef, type EntryId, type FileRef } from '../db'
-import type { Core } from '../index'
+import type { Corge } from '../index'
 import type { AuthLevel } from '../router'
 
 export type VectorValue = ReturnType<typeof FieldValue.vector>
@@ -30,7 +30,7 @@ export interface UserContext {
 
 export type UserContextResolver = (ctx: {
   userId: EntryId
-  core: Core
+  corge: Corge
   signal: AbortSignal
 }) => Promise<UserContext | undefined>
 
@@ -166,7 +166,7 @@ export interface WorkflowToolSpec {
 }
 
 export interface VerifiedAgentToolContext {
-  core: Core
+  corge: Corge
   chatId?: string
   abortSignal?: AbortSignal
 }
@@ -176,7 +176,7 @@ export interface RunAgentOptions {
   chatId?: string
   abortSignal?: AbortSignal
   dynamicContext?: DynamicContextBlockInput
-  core?: Core
+  corge?: Corge
   onFinish?: Parameters<typeof streamText>[0]['onFinish']
 }
 

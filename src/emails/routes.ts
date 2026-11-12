@@ -1,6 +1,6 @@
 import type { Context } from 'hono'
 import type { AppEnv } from '../config'
-import type { Core } from '../index'
+import type { Corge } from '../index'
 import {
   emailLogsQuerySchema,
   emailWebhookParamsSchema,
@@ -18,17 +18,17 @@ export const coreEmailRoutes = {
   'emails.send': {
     input: sendEmailInputSchema,
     output: sendEmailResultSchema,
-    handler: async ({ core, input }: { core: Core; input: SendEmailInput }) => core.emails.send(input)
+    handler: async ({ corge, input }: { corge: Corge; input: SendEmailInput }) => corge.emails.send(input)
   },
   'emails.batch': {
     input: sendBatchEmailInputSchema,
     output: sendBatchEmailResultSchema,
-    handler: async ({ core, input }: { core: Core; input: SendBatchEmailInput }) => core.emails.sendBatch(input.emails)
+    handler: async ({ corge, input }: { corge: Corge; input: SendBatchEmailInput }) => corge.emails.sendBatch(input.emails)
   },
   'emails.logs': {
     query: emailLogsQuerySchema,
-    handler: async ({ core, query }: { core: Core; query: EmailLogsQuery }) =>
-      core.emails.listLogs({
+    handler: async ({ corge, query }: { corge: Corge; query: EmailLogsQuery }) =>
+      corge.emails.listLogs({
         ...(query.userId ? { userId: query.userId } : {}),
         ...(query.limit ? { limit: query.limit } : {}),
         ...(query.cursor ? { cursor: query.cursor } : {}),
@@ -43,12 +43,12 @@ export const coreEmailRoutes = {
   'emails.webhook': {
     params: emailWebhookParamsSchema,
     handler: async ({
-      core,
+      corge,
       c,
       params,
       rawBody
     }: {
-      core: Core
+      corge: Corge
       c: Context<AppEnv>
       params: EmailWebhookParams
       rawBody?: string
@@ -58,7 +58,7 @@ export const coreEmailRoutes = {
         headers[key.toLowerCase()] = value
       })
       const body = rawBody ?? (c ? await c.req.text() : '')
-      return core.internals.emails.verifyAndProcessWebhook(params.provider, body, headers)
+      return corge.internals.emails.verifyAndProcessWebhook(params.provider, body, headers)
     }
   }
 }

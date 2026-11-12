@@ -1,6 +1,6 @@
-import { CORE_CONFIG } from '../config'
+import { CORGE_CONFIG } from '../config'
 import { getRegisteredCollectionNames, type EntryId } from '../db'
-import type { Core } from '../index'
+import type { Corge } from '../index'
 import type { StepRunner } from '../tasks'
 import { AuthOidcEngine } from './oidc'
 import { AuthRecoveryEngine } from './recovery'
@@ -23,16 +23,16 @@ import { AuthSessionEngine, tokenCache } from './session'
 import { hashToken, mapUserRecord, resolveUserRole } from './utils'
 
 export class AuthService {
-  readonly #core: Core
+  readonly #corge: Corge
   readonly #session: AuthSessionEngine
   readonly #oidc: AuthOidcEngine
   readonly #recovery: AuthRecoveryEngine
 
-  constructor(coreClient: Core) {
-    this.#core = coreClient
-    this.#session = new AuthSessionEngine(coreClient)
-    this.#oidc = new AuthOidcEngine(coreClient, this.#session)
-    this.#recovery = new AuthRecoveryEngine(coreClient, this.#session)
+  constructor(corgeClient: Corge) {
+    this.#corge = corgeClient
+    this.#session = new AuthSessionEngine(corgeClient)
+    this.#oidc = new AuthOidcEngine(corgeClient, this.#session)
+    this.#recovery = new AuthRecoveryEngine(corgeClient, this.#session)
   }
 
   signInSocial = (raw: SocialSignInInput): Promise<{ user: AuthUser; sessionCookie: string }> =>
@@ -70,7 +70,7 @@ export class AuthService {
     try {
       const [u, meta] = await Promise.all([
         this.#session.getAuth().getUser(uid),
-        this.#session.getUserAuthMeta(uid, this.#core.env.isDev)
+        this.#session.getUserAuthMeta(uid, this.#corge.env.isDev)
       ])
       return mapUserRecord(u, meta)
     } catch {
@@ -81,7 +81,7 @@ export class AuthService {
   setClaims = async (uid: EntryId, claims: Record<string, unknown> | null): Promise<void> => {
     await this.#session.getAuth().setCustomUserClaims(uid, claims)
     this.#session.evictUserTokens(uid)
-    await this.#session.recordRevocation(uid, this.#core.env.isDev)
+    await this.#session.recordRevocation(uid, this.#corge.env.isDev)
   }
 
   listUsers = async (includeDeleted = false): Promise<AuthUser[]> => {
@@ -90,15 +90,15 @@ export class AuthService {
   }
 
   blockUser = async (
-    userId: EntryId = this.#core.userId,
+    userId: EntryId = this.#corge.userId,
     blocked = true
   ): Promise<{ userId: EntryId; blocked: boolean; deleted: boolean }> => {
     const auth = this.#session.getAuth()
     this.#session.evictUserTokens(userId)
     await Promise.all([
       blocked
-        ? this.#session.recordRevocation(userId, this.#core.env.isDev)
-        : this.#session.clearUserRevocation(userId, this.#core.env.isDev),
+        ? this.#session.recordRevocation(userId, this.#corge.env.isDev)
+        : this.#session.clearUserRevocation(userId, this.#corge.env.isDev),
       ...(blocked ? [auth.revokeRefreshTokens(userId).catch(() => {})] : []),
       auth.updateUser(userId, { disabled: blocked }).catch(() => {})
     ])
@@ -106,13 +106,13 @@ export class AuthService {
   }
 
   #triggerFirestoreBackup = async (userId: string): Promise<string> => {
-    const projectId = this.#core.config.gcpProject
-    const dbId = this.#core.env.isDev ? this.#core.config.firestoreDbs.dev : this.#core.config.firestoreDbs.prod
-    const bucketName = this.#core.env.isDev
-      ? this.#core.config.storageBuckets.dev
-      : this.#core.config.storageBuckets.prod
+    const projectId = this.#corge.config.gcpProject
+    const dbId = this.#corge.env.isDev ? this.#corge.config.firestoreDbs.dev : this.#corge.config.firestoreDbs.prod
+    const bucketName = this.#corge.env.isDev
+      ? this.#corge.config.storageBuckets.dev
+      : this.#corge.config.storageBuckets.prod
     const outputUriPrefix = `gs://${bucketName}/backups/${dbId}-${userId}-${Date.now()}`
-    const accessToken = await this.#core.internals.registry.getGcpAccessToken()
+    const accessToken = await this.#corge.internals.registry.getGcpAccessToken()
     const res = await fetch(
       `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${dbId}:exportDocuments`,
       {
@@ -126,19 +126,19 @@ export class AuthService {
     return data.name ?? outputUriPrefix
   }
 
-  eraseUser = async (raw: EraseUserInput, step: StepRunner = this.#core.step): Promise<EraseUserOutput> => {
+  eraseUser = async (raw: EraseUserInput, step: StepRunner = this.#corge.step): Promise<EraseUserOutput> => {
     const { userId, backupBeforeErase } = eraseUserInput.parse(raw)
     const backupOperation = backupBeforeErase
       ? await step('backup', () => this.#triggerFirestoreBackup(userId))
       : undefined
 
     const { erasedFiles, erasedChats, erasedCollections } =
-      await this.#core.internals.registry.cascadeEraseUserCollections(userId, step)
+      await this.#corge.internals.registry.cascadeEraseUserCollections(userId, step)
 
     const erasedUser = await step('erase-user', async () => {
       this.#session.evictUserTokens(userId)
       await Promise.all([
-        this.#session.recordRevocation(userId, this.#core.env.isDev),
+        this.#session.recordRevocation(userId, this.#corge.env.isDev),
         this.#session.getAuth().deleteUser(userId).catch(() => {})
       ])
       return true
@@ -167,7 +167,7 @@ export class AuthService {
       getLastDevEmail: this.#recovery.getLastDevEmail,
       registerTestOidcPublicKey: this.#oidc.registerTestOidcPublicKey,
       get sessionCookie() {
-        return CORE_CONFIG.auth.sessionCookie
+        return CORGE_CONFIG.auth.sessionCookie
       },
       get authWarm() {
         return getAuthWarm()

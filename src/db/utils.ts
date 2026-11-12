@@ -1,6 +1,6 @@
 import { FieldPath, Timestamp } from 'firebase-admin/firestore'
 import type { DbAction, DbRole } from '../config'
-import type { Core } from '../index'
+import type { Corge } from '../index'
 import {
   collectionRegistry,
   getCollectionDef,
@@ -232,19 +232,19 @@ export const buildScopedCollectionQuery = (
 export const wireCoreCollectionHooks = (): void => {
   const chatDef = collectionRegistry.get('chat')
   if (chatDef && !chatDef.onHardDelete) {
-    chatDef.onHardDelete = async (doc: { id?: string }, core: Core) => {
+    chatDef.onHardDelete = async (doc: { id?: string }, corge: Corge) => {
       if (!doc.id) return
-      const db = core.db.firestore()
-      await core.internals.resilience.acquireLimit('firestore')
+      const db = corge.db.firestore()
+      await corge.internals.resilience.acquireLimit('firestore')
       await drainQueryBatchDelete(db, db.collection('chat').doc(doc.id).collection('messages'))
     }
   }
   const fileDef = collectionRegistry.get('file')
   if (fileDef && !fileDef.onHardDelete) {
-    fileDef.onHardDelete = async (doc: { id?: string }, core: Core) => {
+    fileDef.onHardDelete = async (doc: { id?: string }, corge: Corge) => {
       if (!doc.id) return
-      await core.internals.resilience.acquireLimit('storage')
-      await core.files.bucket().file(doc.id).delete({ ignoreNotFound: true }).catch(() => {})
+      await corge.internals.resilience.acquireLimit('storage')
+      await corge.files.bucket().file(doc.id).delete({ ignoreNotFound: true }).catch(() => {})
     }
   }
 }

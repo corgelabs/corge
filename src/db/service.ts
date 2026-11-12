@@ -2,8 +2,8 @@ import { Agent } from 'node:https'
 import { getApp, getApps, initializeApp } from 'firebase-admin/app'
 import { FieldValue, getFirestore, type Firestore } from 'firebase-admin/firestore'
 import { getStorage } from 'firebase-admin/storage'
-import { CORE_CONFIG, type DbAction, type DbRole } from '../config'
-import { Core } from '../index'
+import { CORGE_CONFIG, type DbAction, type DbRole } from '../config'
+import { Corge } from '../index'
 import type { StepRunner } from '../tasks'
 import {
   collectionRegistry,
@@ -41,29 +41,29 @@ let cachedToken = ''
 let cachedTokenExp = 0
 
 export class DbService {
-  readonly #core: Core
+  readonly #corge: Corge
 
-  constructor(coreClient: Core) {
-    this.#core = coreClient
+  constructor(corgeClient: Corge) {
+    this.#corge = corgeClient
     wireCoreCollectionHooks()
   }
 
   #ensureFirebaseApp = (): void => {
     if (!getApps().length) {
       initializeApp({
-        projectId: CORE_CONFIG.gcpProject,
-        storageBucket: CORE_CONFIG.storageBuckets.prod,
-        serviceAccountId: CORE_CONFIG.serviceAccount,
+        projectId: CORGE_CONFIG.gcpProject,
+        storageBucket: CORGE_CONFIG.storageBuckets.prod,
+        serviceAccountId: CORGE_CONFIG.serviceAccount,
         httpAgent: new Agent({ keepAlive: true })
       })
     }
   }
 
-  firestore = (isDev: boolean = this.#core.env.isDev): Firestore => {
+  firestore = (isDev: boolean = this.#corge.env.isDev): Firestore => {
     this.#ensureFirebaseApp()
     const idx = isDev ? 1 : 0
     if (!dbs[idx]) {
-      const db = getFirestore(isDev ? CORE_CONFIG.firestoreDbs.dev : CORE_CONFIG.firestoreDbs.prod)
+      const db = getFirestore(isDev ? CORGE_CONFIG.firestoreDbs.dev : CORGE_CONFIG.firestoreDbs.prod)
       try {
         db.settings({ ignoreUndefinedProperties: true })
       } catch {}
@@ -72,11 +72,11 @@ export class DbService {
     return dbs[idx]!
   }
 
-  bucket = (isDev: boolean = this.#core.env.isDev): StorageBucket => {
+  bucket = (isDev: boolean = this.#corge.env.isDev): StorageBucket => {
     this.#ensureFirebaseApp()
     const idx = isDev ? 1 : 0
     if (!buckets[idx]) {
-      buckets[idx] = getStorage().bucket(isDev ? CORE_CONFIG.storageBuckets.dev : CORE_CONFIG.storageBuckets.prod)
+      buckets[idx] = getStorage().bucket(isDev ? CORGE_CONFIG.storageBuckets.dev : CORGE_CONFIG.storageBuckets.prod)
     }
     return buckets[idx]!
   }
@@ -84,7 +84,7 @@ export class DbService {
   #getGcpAccessToken = async (): Promise<string> => {
     this.#ensureFirebaseApp()
     if (cachedToken && cachedTokenExp > Date.now() + 60_000) return cachedToken
-    return this.#core.internals.resilience.singleflight(
+    return this.#corge.internals.resilience.singleflight(
       'gcp:token',
       async () => {
         const token = await getApp().options.credential?.getAccessToken()
@@ -98,13 +98,13 @@ export class DbService {
   }
 
   #effectiveCtx = (ctx?: DbCallContext): DbCallContext => ({
-    userId: this.#core.userId,
-    userRole: this.#core.role,
+    userId: this.#corge.userId,
+    userRole: this.#corge.role,
     ...ctx
   })
 
   #resolveRole = (ctx?: DbCallContext): DbRole =>
-    this.#core.internals.auth.resolveUserRole(ctx?.userId, ctx?.userRole)
+    this.#corge.internals.auth.resolveUserRole(ctx?.userId, ctx?.userRole)
 
   #isEntryOwner = async (
     collection: CollectionName,
@@ -112,7 +112,7 @@ export class DbService {
     userId: EntryId
   ): Promise<boolean> => {
     if (!userId) return false
-    if (userId === this.#core.config.auth.adminUserId) return true
+    if (userId === this.#corge.config.auth.adminUserId) return true
     const def = getCollectionDef(collection)
     const rel = def.userRelation?.type ?? '1:N'
     if (rel === 'global') return false
@@ -137,7 +137,7 @@ export class DbService {
     id: string
   ): Promise<SelectModel<T> | undefined> => {
     if (!id) return undefined
-    await this.#core.internals.resilience.acquireLimit('firestore')
+    await this.#corge.internals.resilience.acquireLimit('firestore')
     const snap = await this.firestore().collection(collection).doc(id).get()
     if (!snap.exists) return undefined
     const doc = fromFirestoreDoc(collection, snap.id, snap.data() ?? {})
@@ -147,13 +147,13 @@ export class DbService {
   canAccess = async <N extends CollectionName>(
     collection: N,
     docOrId: string | Record<string, any> | undefined,
-    userId: EntryId = this.#core.userId,
+    userId: EntryId = this.#corge.userId,
     action: DbAction = 'read',
     userRole?: DbRole
   ): Promise<boolean> => {
     const role = this.#resolveRole({
       userId,
-      userRole: userRole ?? (userId === this.#core.userId ? this.#core.role : undefined)
+      userRole: userRole ?? (userId === this.#corge.userId ? this.#corge.role : undefined)
     })
     const scope = resolveAllowedScope(collection, role, action)
     if (scope === 'none') return false
@@ -178,12 +178,12 @@ export class DbService {
     if (!effective.bypassRbac) {
       const role = this.#resolveRole(effective)
       const scope = resolveAllowedScope(collection, role, 'create')
-      if (scope === 'none') this.#core.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
+      if (scope === 'none') this.#corge.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
       if (scope === 'own' && !isCreateOwnScopeAllowed(collection, effective.userId, data as Record<string, any>)) {
-        this.#core.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
+        this.#corge.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
       }
     }
-    await this.#core.internals.resilience.acquireLimit('firestore')
+    await this.#corge.internals.resilience.acquireLimit('firestore')
     const def = getCollectionDef(collection)
     const rel = def.userRelation?.type ?? '1:N'
     const userField = def.userRelation?.userField ?? (rel === '1:1' ? 'id' : 'userId')
@@ -204,7 +204,7 @@ export class DbService {
     ctx?: DbCallContext
   ): Promise<SelectModel<N> | undefined> => {
     if (!id) return undefined
-    await this.#core.internals.resilience.acquireLimit('firestore')
+    await this.#corge.internals.resilience.acquireLimit('firestore')
     const snap = await this.firestore().collection(collection).doc(id).get()
     if (!snap.exists) return undefined
     const doc = fromFirestoreDoc(collection, snap.id, snap.data() ?? {})
@@ -213,10 +213,10 @@ export class DbService {
     if (!effective.bypassRbac) {
       const role = this.#resolveRole(effective)
       const scope = resolveAllowedScope(collection, role, 'read')
-      if (scope === 'none') this.#core.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
+      if (scope === 'none') this.#corge.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
       if (scope === 'own') {
         if (!effective.userId || !(await this.#isEntryOwner(collection, doc, effective.userId))) {
-          this.#core.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
+          this.#corge.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
         }
       }
     }
@@ -234,7 +234,7 @@ export class DbService {
     const byId = new Map<string, SelectModel<T>>()
     const db = this.firestore()
     for (let i = 0; i < uniqueIds.length; i += 100) {
-      await this.#core.internals.resilience.acquireLimit('firestore')
+      await this.#corge.internals.resilience.acquireLimit('firestore')
       const snaps = await db.getAll(...uniqueIds.slice(i, i + 100).map((id) => db.collection(collection).doc(id)))
       for (const s of snaps) {
         if (!s.exists) continue
@@ -256,10 +256,10 @@ export class DbService {
     if (!bypass) {
       const role = this.#resolveRole(effective)
       const scope = resolveAllowedScope(collection, role, 'read')
-      if (scope === 'none') this.#core.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
+      if (scope === 'none') this.#corge.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
       if (scope === 'own') {
-        if (!effective.userId) this.#core.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
-        if (scopedUserId && scopedUserId !== effective.userId) this.#core.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
+        if (!effective.userId) this.#corge.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
+        if (scopedUserId && scopedUserId !== effective.userId) this.#corge.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
         scopedUserId = effective.userId
       }
     }
@@ -267,7 +267,7 @@ export class DbService {
     const def = getCollectionDef(collection)
     const db = this.firestore()
     const rel = def.userRelation?.type ?? '1:N'
-    const maxDocs = opts?.limit ?? this.#core.config.limits.defaultListLimit
+    const maxDocs = opts?.limit ?? this.#corge.config.limits.defaultListLimit
     const hasSelect = Boolean(opts?.select?.length)
 
     if (opts?.ids) {
@@ -277,7 +277,7 @@ export class DbService {
       return attachNextCursor(docs.filter((_, i) => ownership[i]).slice(0, maxDocs), maxDocs)
     }
 
-    await this.#core.internals.resilience.acquireLimit('firestore')
+    await this.#corge.internals.resilience.acquireLimit('firestore')
 
     if (scopedUserId) {
       if (rel === '1:1' && (def.userRelation?.userField ?? 'id') === 'id') {
@@ -307,7 +307,7 @@ export class DbService {
       opts,
       maxDocs,
       hasSelect,
-      this.#core.config.limits.defaultListLimit
+      this.#corge.config.limits.defaultListLimit
     )
     return attachNextCursor(docs.slice(0, maxDocs), maxDocs)
   }
@@ -330,10 +330,10 @@ export class DbService {
     const effective = this.#effectiveCtx(ctx)
     if (!effective.bypassRbac) {
       const allowed = await this.canAccess(collection, id, effective.userId ?? '', 'write', effective.userRole)
-      if (!allowed) this.#core.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
+      if (!allowed) this.#corge.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
     }
     const cleanPatch = stripImmutableUpdateFields(collection, data, Boolean(effective.bypassRbac))
-    await this.#core.internals.resilience.acquireLimit('firestore')
+    await this.#corge.internals.resilience.acquireLimit('firestore')
     await this.firestore()
       .collection(collection)
       .doc(id)
@@ -351,7 +351,7 @@ export class DbService {
     const effective = this.#effectiveCtx(ctx)
     if (!effective.bypassRbac) {
       const allowed = await this.canAccess(collection, existing, effective.userId ?? '', 'delete', effective.userRole)
-      if (!allowed) this.#core.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
+      if (!allowed) this.#corge.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
     }
     await this.update(collection, id, { deleted: true } as UpdateData<N>, { bypassRbac: true })
     return { id, deleted: true }
@@ -371,16 +371,16 @@ export class DbService {
     if (!effective.bypassRbac) {
       if (!existing) throw new Error(`Not found: ${collection}/${id}`)
       const allowed = await this.canAccess(collection, existing, effective.userId ?? '', 'delete', effective.userRole)
-      if (!allowed) this.#core.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
+      if (!allowed) this.#corge.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
     }
-    await this.#core.internals.resilience.acquireLimit('firestore')
+    await this.#corge.internals.resilience.acquireLimit('firestore')
     await this.firestore().collection(collection).doc(id).delete()
     if (def.onHardDelete && (existing || collection === 'chat')) {
       const scopedCore =
-        effective.core ??
-        new Core({
-          env: this.#core.env,
-          userId: effective.userId ?? this.#core.config.auth.adminUserId,
+        effective.corge ??
+        new Corge({
+          env: this.#corge.env,
+          userId: effective.userId ?? this.#corge.config.auth.adminUserId,
           role: 'admin'
         })
       const targetDoc = existing ?? ({ id } as SelectModel<N>)
@@ -403,7 +403,7 @@ export class DbService {
 
   #cascadeEraseUserCollections = async (
     userId: EntryId,
-    step: StepRunner = this.#core.step
+    step: StepRunner = this.#corge.step
   ): Promise<{ erasedFiles: number; erasedChats: number; erasedCollections: Record<string, number> }> => {
     const erasedFiles = await step('erase-files', () => this.#eraseOwnedEntries('file', userId))
     const erasedChats = await step('erase-chats', async () => {

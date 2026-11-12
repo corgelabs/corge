@@ -1,5 +1,5 @@
 import type { EntryId, SelectModel } from '../db'
-import type { Core } from '../index'
+import type { Corge } from '../index'
 import {
   cancelSubscriptionInput, changeTierInput, createCheckoutInput, createInvoiceInput, createPaymentLinkInput, directChargeInput,
   getPlanDefinition, getProductDefinition, subscribeInput, type CancelSubscriptionInput, type ChangeTierInput, type ChargeResult,
@@ -12,17 +12,17 @@ import {
 } from './utils'
 
 export class PaymentsBillingEngine {
-  readonly #core: Core
+  readonly #corge: Corge
 
-  constructor(coreClient: Core) {
-    this.#core = coreClient
+  constructor(corgeClient: Corge) {
+    this.#corge = corgeClient
   }
 
   resolveProvider = (override?: PaymentProvider): PaymentProvider => {
     if (override) return override
-    const preferred = this.#core.config.payments.provider
-    const isDev = Boolean(this.#core.env.isDev)
-    const env = this.#core.env
+    const preferred = this.#corge.config.payments.provider
+    const isDev = Boolean(this.#corge.env.isDev)
+    const env = this.#corge.env
     const hasStripe = Boolean((isDev ? env.STRIPE_SANDBOX_API_KEY : env.STRIPE_API_KEY) || env.STRIPE_API_KEY || env.STRIPE_SANDBOX_API_KEY)
     const hasDodo = Boolean((isDev ? env.DODO_SANDBOX_API_KEY : env.DODO_API_KEY) || env.DODO_API_KEY || env.DODO_SANDBOX_API_KEY)
     if (preferred === 'dodo' && !hasDodo && hasStripe) return 'stripe'
@@ -31,9 +31,9 @@ export class PaymentsBillingEngine {
   }
 
   getCreds = (provider: PaymentProvider) => {
-    const isDev = Boolean(this.#core.env.isDev)
-    const cfg = this.#core.config.payments
-    const env = this.#core.env
+    const isDev = Boolean(this.#corge.env.isDev)
+    const cfg = this.#corge.config.payments
+    const env = this.#corge.env
     if (provider === 'stripe') {
       const apiKey = (isDev && env.STRIPE_SANDBOX_API_KEY ? env.STRIPE_SANDBOX_API_KEY : env.STRIPE_API_KEY || env.STRIPE_SANDBOX_API_KEY).trim()
       const webhookSecret = (isDev && env.STRIPE_SANDBOX_WEBHOOK_SECRET ? env.STRIPE_SANDBOX_WEBHOOK_SECRET : env.STRIPE_WEBHOOK_SECRET || env.STRIPE_SANDBOX_WEBHOOK_SECRET).trim()
@@ -45,13 +45,13 @@ export class PaymentsBillingEngine {
   }
 
   #withBreaker = async <T>(cost: number, fn: () => Promise<T>): Promise<T> => {
-    await this.#core.internals.resilience.acquireLimit('payments', cost)
-    return this.#core.internals.resilience.circuitBreaker('payments', fn, undefined, { isDev: this.#core.env.isDev })
+    await this.#corge.internals.resilience.acquireLimit('payments', cost)
+    return this.#corge.internals.resilience.circuitBreaker('payments', fn, undefined, { isDev: this.#corge.env.isDev })
   }
 
   stripeCall = <T = Record<string, any>>(method: string, path: string, form?: Record<string, unknown>, idempotencyKey?: string): Promise<T> => {
     const { baseUrl, apiKey } = this.getCreds('stripe')
-    return this.#withBreaker(1, () => requestStripeApi<T>(baseUrl, apiKey, this.#core.config.payments.stripe.apiVersion, method, path, form, idempotencyKey))
+    return this.#withBreaker(1, () => requestStripeApi<T>(baseUrl, apiKey, this.#corge.config.payments.stripe.apiVersion, method, path, form, idempotencyKey))
   }
 
   dodoCall = <T = Record<string, any>>(method: string, path: string, body?: unknown, idempotencyKey?: string): Promise<T> => {
@@ -60,19 +60,19 @@ export class PaymentsBillingEngine {
   }
 
   #resolveItem = (rawInput: Parameters<typeof resolvePurchaseItem>[0], userId: string): ResolvedPurchaseItem => {
-    const res = resolvePurchaseItem(rawInput, userId, Boolean(this.#core.env.isDev), this.#core.config.payments.defaultCurrency)
-    if ('error' in res) return this.#core.errors.httpError(400, res.error, 'INVALID_PAYMENT_ITEM')
+    const res = resolvePurchaseItem(rawInput, userId, Boolean(this.#corge.env.isDev), this.#corge.config.payments.defaultCurrency)
+    if ('error' in res) return this.#corge.errors.httpError(400, res.error, 'INVALID_PAYMENT_ITEM')
     return res
   }
 
   ensureCustomer = async (userId: EntryId, provider: PaymentProvider): Promise<{ doc: SelectModel<'payment_customer'>; providerCustomerId: string }> =>
-    this.#core.internals.resilience.singleflight(
+    this.#corge.internals.resilience.singleflight(
       `pay_cust:${provider}:${userId}`,
       async () => {
-        const defaultPlanId = this.#core.config.payments.defaultPlanId
-        let doc = await this.#core.db.read('payment_customer', userId, false, { bypassRbac: true })
+        const defaultPlanId = this.#corge.config.payments.defaultPlanId
+        let doc = await this.#corge.db.read('payment_customer', userId, false, { bypassRbac: true })
         if (!doc) {
-          doc = await this.#core.db.create(
+          doc = await this.#corge.db.create(
             'payment_customer',
             { id: userId, userId, planId: defaultPlanId, subscriptionStatus: 'none', cancelAtPeriodEnd: false, bonusAiTokens: 0, credits: 0, bonusMetrics: {} },
             { bypassRbac: true }
@@ -91,7 +91,7 @@ export class PaymentsBillingEngine {
           providerCustomerId = String(created.id ?? created.customer_id ?? providerCustomerId)
         }
         const patch = provider === 'stripe' ? { stripeCustomerId: providerCustomerId, activeProvider: provider } : { dodoCustomerId: providerCustomerId, activeProvider: provider }
-        await this.#core.db.update('payment_customer', userId, patch, { bypassRbac: true })
+        await this.#corge.db.update('payment_customer', userId, patch, { bypassRbac: true })
         return { doc: { ...doc, ...patch }, providerCustomerId }
       },
       { scope: 'global' }
@@ -100,10 +100,10 @@ export class PaymentsBillingEngine {
   applyProductGrants = async (userId: EntryId, productId?: string, grantKey?: string): Promise<void> => {
     const prod = productId ? getProductDefinition(productId) : undefined
     if (!prod?.grants) return
-    const db = this.#core.db.firestore()
+    const db = this.#corge.db.firestore()
     const custRef = db.collection('payment_customer').doc(userId)
     const grantRef = grantKey ? db.collection('_idempotency').doc(`pay_grant_${userId}_${grantKey.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 96)}`) : undefined
-    await this.#core.internals.resilience.acquireLimit('firestore')
+    await this.#corge.internals.resilience.acquireLimit('firestore')
     await db.runTransaction(async (tx) => {
       const [custSnap, grantSnap] = await Promise.all([tx.get(custRef), grantRef ? tx.get(grantRef) : Promise.resolve(undefined)])
       if (grantSnap?.exists) return
@@ -117,7 +117,7 @@ export class PaymentsBillingEngine {
         {
           id: userId,
           userId,
-          planId: data.planId ?? this.#core.config.payments.defaultPlanId,
+          planId: data.planId ?? this.#corge.config.payments.defaultPlanId,
           subscriptionStatus: data.subscriptionStatus ?? 'none',
           cancelAtPeriodEnd: Boolean(data.cancelAtPeriodEnd),
           bonusAiTokens: Number(data.bonusAiTokens ?? 0) + (prod.grants?.aiTokens ?? 0),
@@ -134,12 +134,12 @@ export class PaymentsBillingEngine {
 
   createCheckout = async (rawInput: CreateCheckoutInput, opts?: PaymentCallOptions): Promise<CheckoutSessionResult> => {
     const parsed = createCheckoutInput.parse(rawInput)
-    const userId = opts?.userId ?? this.#core.userId
+    const userId = opts?.userId ?? this.#corge.userId
     const provider = this.resolveProvider(opts?.provider)
-    const isDev = Boolean(this.#core.env.isDev)
+    const isDev = Boolean(this.#corge.env.isDev)
     const item = this.#resolveItem(parsed, userId)
     const { providerCustomerId } = await this.ensureCustomer(userId, provider)
-    const cfgUrls = this.#core.config.payments.urls
+    const cfgUrls = this.#corge.config.payments.urls
     const successUrl = parsed.successUrl ?? resolveEnvScopedValue(cfgUrls.successUrl, isDev) ?? 'https://localhost/success'
     const cancelUrl = parsed.cancelUrl ?? resolveEnvScopedValue(cfgUrls.cancelUrl, isDev) ?? 'https://localhost/cancel'
     const idemKey = idempotencyPaymentKey('chk', parsed.idempotencyKey ?? opts?.idempotencyKey)
@@ -181,12 +181,12 @@ export class PaymentsBillingEngine {
 
   createPaymentLink = async (rawInput: CreatePaymentLinkInput, opts?: PaymentCallOptions): Promise<PaymentLinkResult> => {
     const parsed = createPaymentLinkInput.parse(rawInput)
-    const userId = opts?.userId ?? this.#core.userId
+    const userId = opts?.userId ?? this.#corge.userId
     const provider = this.resolveProvider(opts?.provider)
-    const isDev = Boolean(this.#core.env.isDev)
+    const isDev = Boolean(this.#corge.env.isDev)
     const item = this.#resolveItem(parsed, userId)
     const { providerCustomerId } = await this.ensureCustomer(userId, provider)
-    const returnUrl = parsed.returnUrl ?? resolveEnvScopedValue(this.#core.config.payments.urls.returnUrl, isDev) ?? 'https://localhost/billing'
+    const returnUrl = parsed.returnUrl ?? resolveEnvScopedValue(this.#corge.config.payments.urls.returnUrl, isDev) ?? 'https://localhost/billing'
     const idemKey = idempotencyPaymentKey('pl', parsed.idempotencyKey ?? opts?.idempotencyKey)
 
     if (this.getCreds(provider).isSyntheticDev) {
@@ -214,7 +214,7 @@ export class PaymentsBillingEngine {
 
   createInvoice = async (rawInput: CreateInvoiceInput, opts?: PaymentCallOptions): Promise<InvoiceResult> => {
     const parsed = createInvoiceInput.parse(rawInput)
-    const userId = opts?.userId ?? this.#core.userId
+    const userId = opts?.userId ?? this.#corge.userId
     const provider = this.resolveProvider(opts?.provider)
     const item = this.#resolveItem(parsed, userId)
     const totalAmount = item.amount * item.quantity
@@ -280,7 +280,7 @@ export class PaymentsBillingEngine {
 
   charge = async (rawInput: DirectChargeInput, opts?: PaymentCallOptions): Promise<ChargeResult> => {
     const parsed = directChargeInput.parse(rawInput)
-    const userId = opts?.userId ?? this.#core.userId
+    const userId = opts?.userId ?? this.#corge.userId
     const provider = this.resolveProvider(opts?.provider)
     const item = this.#resolveItem(parsed, userId)
     const totalAmount = item.amount * item.quantity
@@ -346,19 +346,19 @@ export class PaymentsBillingEngine {
 
   subscribe = async (rawInput: SubscribeInput, opts?: PaymentCallOptions): Promise<SubscribeResult> => {
     const parsed = subscribeInput.parse(rawInput)
-    const userId = opts?.userId ?? this.#core.userId
+    const userId = opts?.userId ?? this.#corge.userId
     const provider = this.resolveProvider(opts?.provider)
-    const isDev = Boolean(this.#core.env.isDev)
+    const isDev = Boolean(this.#corge.env.isDev)
     const plan = getPlanDefinition(parsed.plan)
-    if (!plan) return this.#core.errors.httpError(400, `Unknown plan alias: ${parsed.plan}`, 'INVALID_PLAN')
+    if (!plan) return this.#corge.errors.httpError(400, `Unknown plan alias: ${parsed.plan}`, 'INVALID_PLAN')
 
     const { providerCustomerId } = await this.ensureCustomer(userId, provider)
-    const returnUrl = parsed.returnUrl ?? resolveEnvScopedValue(this.#core.config.payments.urls.returnUrl, isDev) ?? 'https://localhost/billing'
+    const returnUrl = parsed.returnUrl ?? resolveEnvScopedValue(this.#corge.config.payments.urls.returnUrl, isDev) ?? 'https://localhost/billing'
     const idemKey = idempotencyPaymentKey('sub', parsed.idempotencyKey ?? opts?.idempotencyKey)
 
     if (plan.interval === 'free' || plan.amount === 0 || this.getCreds(provider).isSyntheticDev) {
       const subscriptionId = `sub_dev_${plan.id}_${userId}`
-      await this.#core.db.update(
+      await this.#corge.db.update(
         'payment_customer',
         userId,
         { planId: plan.id, subscriptionId, subscriptionStatus: 'active', activeProvider: provider, cancelAtPeriodEnd: false },
@@ -389,7 +389,7 @@ export class PaymentsBillingEngine {
     const subscriptionId = String(res.subscription_id ?? res.id ?? `sub_${Date.now()}`)
     const status = res.status === 'active' ? 'active' : res.status === 'trialing' ? 'trialing' : 'requires_action'
     const checkoutUrl = res.payment_link ?? res.checkout_url
-    await this.#core.db.update(
+    await this.#corge.db.update(
       'payment_customer',
       userId,
       { planId: plan.id, subscriptionId, subscriptionStatus: status === 'requires_action' ? 'none' : status, activeProvider: provider },
@@ -400,14 +400,14 @@ export class PaymentsBillingEngine {
 
   changeSubscriptionTier = async (rawInput: ChangeTierInput, opts?: PaymentCallOptions): Promise<SubscriptionRecord> => {
     const parsed = changeTierInput.parse(rawInput)
-    const userId = opts?.userId ?? this.#core.userId
+    const userId = opts?.userId ?? this.#corge.userId
     const plan = getPlanDefinition(parsed.plan)
-    if (!plan) return this.#core.errors.httpError(400, `Unknown plan alias: ${parsed.plan}`, 'INVALID_PLAN')
+    if (!plan) return this.#corge.errors.httpError(400, `Unknown plan alias: ${parsed.plan}`, 'INVALID_PLAN')
 
-    const cust = await this.#core.db.read('payment_customer', userId, false, { bypassRbac: true })
-    if (!cust?.subscriptionId) return this.#core.errors.httpError(400, 'No active subscription to change tier', 'NO_ACTIVE_SUBSCRIPTION')
+    const cust = await this.#corge.db.read('payment_customer', userId, false, { bypassRbac: true })
+    if (!cust?.subscriptionId) return this.#corge.errors.httpError(400, 'No active subscription to change tier', 'NO_ACTIVE_SUBSCRIPTION')
     const provider = this.resolveProvider(opts?.provider ?? cust.activeProvider)
-    const isDev = Boolean(this.#core.env.isDev)
+    const isDev = Boolean(this.#corge.env.isDev)
     const idemKey = idempotencyPaymentKey('tier', parsed.idempotencyKey ?? opts?.idempotencyKey)
 
     if (!this.getCreds(provider).isSyntheticDev) {
@@ -433,10 +433,10 @@ export class PaymentsBillingEngine {
       }
     }
 
-    await this.#core.db.update('payment_customer', userId, { planId: plan.id, subscriptionStatus: 'active', cancelAtPeriodEnd: false }, { bypassRbac: true })
+    await this.#corge.db.update('payment_customer', userId, { planId: plan.id, subscriptionStatus: 'active', cancelAtPeriodEnd: false }, { bypassRbac: true })
     const usageId = paymentUsageDocId(userId, currentPeriodKey(cust.currentPeriodStart))
-    const usageDoc = await this.#core.db.read('payment_usage', usageId, false, { bypassRbac: true })
-    if (usageDoc) await this.#core.db.update('payment_usage', usageId, { planId: plan.id }, { bypassRbac: true })
+    const usageDoc = await this.#corge.db.read('payment_usage', usageId, false, { bypassRbac: true })
+    if (usageDoc) await this.#corge.db.update('payment_usage', usageId, { planId: plan.id }, { bypassRbac: true })
 
     return {
       subscriptionId: cust.subscriptionId,
@@ -451,9 +451,9 @@ export class PaymentsBillingEngine {
 
   cancelSubscription = async (rawInput: CancelSubscriptionInput = {}, opts?: PaymentCallOptions): Promise<SubscriptionRecord> => {
     const parsed = cancelSubscriptionInput.parse(rawInput)
-    const userId = opts?.userId ?? this.#core.userId
-    const cust = await this.#core.db.read('payment_customer', userId, false, { bypassRbac: true })
-    if (!cust?.subscriptionId) return this.#core.errors.httpError(400, 'No active subscription to cancel', 'NO_ACTIVE_SUBSCRIPTION')
+    const userId = opts?.userId ?? this.#corge.userId
+    const cust = await this.#corge.db.read('payment_customer', userId, false, { bypassRbac: true })
+    if (!cust?.subscriptionId) return this.#corge.errors.httpError(400, 'No active subscription to cancel', 'NO_ACTIVE_SUBSCRIPTION')
     const provider = this.resolveProvider(opts?.provider ?? cust.activeProvider)
     const idemKey = idempotencyPaymentKey('can', parsed.idempotencyKey ?? opts?.idempotencyKey)
 
@@ -473,8 +473,8 @@ export class PaymentsBillingEngine {
     }
 
     const newStatus = parsed.immediately ? 'cancelled' : cust.subscriptionStatus === 'none' ? 'active' : cust.subscriptionStatus
-    const newPlanId = parsed.immediately ? this.#core.config.payments.defaultPlanId : cust.planId
-    await this.#core.db.update('payment_customer', userId, { planId: newPlanId, subscriptionStatus: newStatus, cancelAtPeriodEnd: !parsed.immediately }, { bypassRbac: true })
+    const newPlanId = parsed.immediately ? this.#corge.config.payments.defaultPlanId : cust.planId
+    await this.#corge.db.update('payment_customer', userId, { planId: newPlanId, subscriptionStatus: newStatus, cancelAtPeriodEnd: !parsed.immediately }, { bypassRbac: true })
     return {
       subscriptionId: cust.subscriptionId,
       planId: newPlanId,

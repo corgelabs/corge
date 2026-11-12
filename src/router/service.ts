@@ -9,11 +9,11 @@ import { z } from 'zod'
 import { coreAttachmentsRoutes, getRegisteredAttachmentTypes, registerAttachmentTypes } from '../attachments'
 import { coreAuthRoutes } from '../auth'
 import { coreChatRoutes, mcpRoute } from '../chat'
-import { CORE_CONFIG, SECRET_NAMES, type AppBindings, type AppEnv, type DbRole } from '../config'
+import { CORGE_CONFIG, SECRET_NAMES, type AppBindings, type AppEnv, type DbRole } from '../config'
 import { registerCollections, type EntryId } from '../db'
 import { coreEmailRoutes, registerEmailTemplates } from '../emails'
 import { coreFilesRoutes } from '../files'
-import { Core } from '../index'
+import { Corge } from '../index'
 import { corePaymentRoutes, registerPlans, registerProducts } from '../payments'
 import {
   buildHealthRoute, buildRoutesListRoute, buildTaskCancelRoute, buildTaskSignalRoute, buildTaskStatusRoute,
@@ -21,16 +21,16 @@ import {
 } from '../tasks'
 import { isRespondAsyncPreferred, mergeCoreAndDomainRoutes, RouterGuardEngine } from './guard'
 import {
-  type CoreAppInit, type CoreRouteId, type RouteConfig, type RouteExecutionContext, type RouteMode, type WorkflowRegistryEntry
+  type CorgeAppInit, type CorgeRouteId, type RouteConfig, type RouteExecutionContext, type RouteMode, type WorkflowRegistryEntry
 } from './schema'
 
 export class RouterService {
-  readonly #core: Core
+  readonly #corge: Corge
   readonly #guard: RouterGuardEngine
 
-  constructor(coreClient: Core) {
-    this.#core = coreClient
-    this.#guard = new RouterGuardEngine(coreClient)
+  constructor(corgeClient: Corge) {
+    this.#corge = corgeClient
+    this.#guard = new RouterGuardEngine(corgeClient)
   }
 
   readonly applyRateLimit = (
@@ -46,8 +46,8 @@ export class RouterService {
     devApp: Hono<AppEnv>,
     workflowRegistry: Record<string, WorkflowRuntimeEntry>
   ) => {
-    const emailProvider = CORE_CONFIG.emails.provider
-    const paymentProvider = CORE_CONFIG.payments.provider
+    const emailProvider = CORGE_CONFIG.emails.provider
+    const paymentProvider = CORGE_CONFIG.payments.provider
     const emailSecrets: string[] = [
       ...(emailProvider === 'resend' ? ['RESEND_API_KEY', 'EMAIL_WEBHOOK_SECRET'] : []),
       ...(emailProvider === 'sendgrid' ? ['SENDGRID_API_KEY', 'EMAIL_WEBHOOK_SECRET'] : [])
@@ -56,42 +56,42 @@ export class RouterService {
       ...(paymentProvider === 'stripe' ? ['STRIPE_API_KEY', 'STRIPE_WEBHOOK_SECRET', 'STRIPE_SANDBOX_API_KEY', 'STRIPE_SANDBOX_WEBHOOK_SECRET'] : []),
       ...(paymentProvider === 'dodo' ? ['DODO_API_KEY', 'DODO_WEBHOOK_SECRET', 'DODO_SANDBOX_API_KEY', 'DODO_SANDBOX_WEBHOOK_SECRET'] : [])
     ]
-    const secretNames = [...new Set<string>([...SECRET_NAMES, ...emailSecrets, ...paymentSecrets, ...CORE_CONFIG.secrets])]
+    const secretNames = [...new Set<string>([...SECRET_NAMES, ...emailSecrets, ...paymentSecrets, ...CORGE_CONFIG.secrets])]
     const sharedOpts = {
-      region: CORE_CONFIG.region,
-      memory: CORE_CONFIG.cloudRun.memory,
-      cpu: CORE_CONFIG.cloudRun.cpu,
+      region: CORGE_CONFIG.region,
+      memory: CORGE_CONFIG.cloudRun.memory,
+      cpu: CORGE_CONFIG.cloudRun.cpu,
       secrets: secretNames.map((name) => defineSecret(name))
     }
-    const httpOpts = { ...sharedOpts, ...CORE_CONFIG.cloudRun.http }
-    const workerOpts = { ...sharedOpts, ...CORE_CONFIG.cloudRun.worker }
+    const httpOpts = { ...sharedOpts, ...CORGE_CONFIG.cloudRun.http }
+    const workerOpts = { ...sharedOpts, ...CORGE_CONFIG.cloudRun.worker }
 
     const httpHandler = onRequest(httpOpts, getRequestListener((req) => app.fetch(req)))
     const devHttpHandler = onRequest(httpOpts, getRequestListener((req) => devApp.fetch(req)))
 
     const workerConfig = {
       ...workerOpts,
-      invoker: [CORE_CONFIG.serviceAccount, CORE_CONFIG.computeAccount],
-      retryConfig: { maxAttempts: CORE_CONFIG.tasks.maxAttempts, minBackoffSeconds: 2, maxBackoffSeconds: 20 },
+      invoker: [CORGE_CONFIG.serviceAccount, CORGE_CONFIG.computeAccount],
+      retryConfig: { maxAttempts: CORGE_CONFIG.tasks.maxAttempts, minBackoffSeconds: 2, maxBackoffSeconds: 20 },
       rateLimits: { maxConcurrentDispatches: 1000, maxDispatchesPerSecond: 500 }
     }
 
     const tasksHandler = onTaskDispatched<WorkflowTaskPayload>(workerConfig, async (req) => {
       try {
-        await this.#core.internals.workflows.execute({ ...req.data, isDev: false }, workflowRegistry)
+        await this.#corge.internals.workflows.execute({ ...req.data, isDev: false }, workflowRegistry)
       } catch (err) {
-        if (!this.#core.errors.isStaleWorkerEpochError(err)) throw err
+        if (!this.#corge.errors.isStaleWorkerEpochError(err)) throw err
       }
     })
     const devTasksHandler = onTaskDispatched<WorkflowTaskPayload>(workerConfig, async (req) => {
       try {
-        await this.#core.internals.workflows.execute({ ...req.data, isDev: true }, workflowRegistry)
+        await this.#corge.internals.workflows.execute({ ...req.data, isDev: true }, workflowRegistry)
       } catch (err) {
-        if (!this.#core.errors.isStaleWorkerEpochError(err)) throw err
+        if (!this.#corge.errors.isStaleWorkerEpochError(err)) throw err
       }
     })
 
-    const fnName = CORE_CONFIG.gcpProject
+    const fnName = CORGE_CONFIG.gcpProject
     const functions: Record<string, unknown> = {
       [fnName]: httpHandler,
       [`${fnName}-dev`]: devHttpHandler,
@@ -108,20 +108,20 @@ export class RouterService {
     role: DbRole,
     mode: RouteMode,
     input: I,
-    step: StepRunner = this.#core.internals.workflows.createStepRunner('rest'),
+    step: StepRunner = this.#corge.internals.workflows.createStepRunner('rest'),
     c?: Context<AppEnv>,
     params?: P,
     query?: Q,
     rawBody?: string
   ): RouteExecutionContext<I, P, Q> => ({
-    core: new Core({ env, userId, role, step }),
+    corge: new Corge({ env, userId, role, step }),
     c: c as Context<AppEnv>,
     env,
     userId,
     role,
     mode,
     step,
-    allWithRollback: this.#core.internals.workflows.allWithRollback,
+    allWithRollback: this.#corge.internals.workflows.allWithRollback,
     input,
     params: (params ?? (c ? c.req.param() : {})) as P,
     query: (query ?? (c ? c.req.query() : {})) as Q,
@@ -161,8 +161,8 @@ export class RouterService {
       (cfg.idempotencyKey ? cfg.idempotencyKey(parsed, { userId }) : undefined) ??
       (c?.req.header('idempotency-key')?.trim() || undefined)
     const runWithStep = <T>(m: RouteMode, fn: (ctx: RouteExecutionContext) => Promise<T> | T): Promise<T> => {
-      const step = this.#core.internals.workflows.createStepRunner(m)
-      return this.#core.internals.context.run({ env, userId, role, step }, async () =>
+      const step = this.#corge.internals.workflows.createStepRunner(m)
+      return this.#corge.internals.context.run({ env, userId, role, step }, async () =>
         fn(this.#makeCtx(env, userId, role, m, parsed, step, c, parsedParams, parsedQuery, rawBody))
       )
     }
@@ -179,12 +179,12 @@ export class RouterService {
     if (cached !== undefined && cached !== null) return parseOut(cached)
 
     try {
-      const dispatched = await this.#core.internals.workflows.dispatch(wfName, runTask, parsed, {
+      const dispatched = await this.#corge.internals.workflows.dispatch(wfName, runTask, parsed, {
         mode: 'workflow',
         ...(cfg.timeout !== undefined ? { timeout: cfg.timeout } : {}),
         ...(dedupeKey ? { dedupeKey } : {}),
         wait,
-        ...(wait && c ? { maxWaitMs: CORE_CONFIG.limits.maxWaitMs, signal: c.req.raw?.signal } : {}),
+        ...(wait && c ? { maxWaitMs: CORGE_CONFIG.limits.maxWaitMs, signal: c.req.raw?.signal } : {}),
         userId,
         userRole: role
       })
@@ -210,7 +210,7 @@ export class RouterService {
     const method = (cfg.method ?? 'POST').toUpperCase()
     const path = cfg.path ?? `/${key}`
     const deadlineSeconds = cfg.timeout
-      ? Math.max(15, Math.ceil(this.#core.errors.parseDuration(cfg.timeout, 540_000) / 1000))
+      ? Math.max(15, Math.ceil(this.#corge.errors.parseDuration(cfg.timeout, 540_000) / 1000))
       : undefined
 
     routeRegistryItems.push({
@@ -244,7 +244,7 @@ export class RouterService {
 
     if (cfg.tool !== false || cfg.mcp === true || mode === 'workflow' || cfg.workflowName) {
       const registerToolUnder = (toolName: string, mcp: boolean, tool: boolean) =>
-        this.#core.internals.registry.registerWorkflowTool(toolName, {
+        this.#corge.internals.registry.registerWorkflowTool(toolName, {
           description,
           input: inputSchema,
           mcp,
@@ -269,8 +269,8 @@ export class RouterService {
     const parseOut = (out: unknown) => (out instanceof Response ? out : cfg.output ? cfg.output.parse(out) : out)
 
     const runTask = async (taskInput: unknown, step: StepRunner) => {
-      const current = new Core()
-      const uid = current.userId || CORE_CONFIG.auth.adminUserId
+      const current = new Corge()
+      const uid = current.userId || CORGE_CONFIG.auth.adminUserId
       return cfg.handler(this.#makeCtx(current.env, uid, current.role, mode, taskInput, step))
     }
 
@@ -281,22 +281,22 @@ export class RouterService {
       explicitRole?: DbRole,
       opts?: { wait?: boolean; rawBody?: string }
     ) => {
-      const env = c?.env ?? this.#core.env
+      const env = c?.env ?? this.#corge.env
       const authLevel = cfg.auth ?? 'user'
-      const role = this.#core.internals.auth.resolveUserRole(userId, explicitRole ?? (c?.get('userRole') as DbRole | undefined))
+      const role = this.#corge.internals.auth.resolveUserRole(userId, explicitRole ?? (c?.get('userRole') as DbRole | undefined))
 
       if (authLevel !== 'public' && authLevel !== 'none' && authLevel !== false && !userId) {
-        return this.#core.errors.httpError(401, 'Unauthorized', 'UNAUTHORIZED')
+        return this.#corge.errors.httpError(401, 'Unauthorized', 'UNAUTHORIZED')
       }
-      if ((authLevel === 'admin' || authLevel === 'api-key') && role !== 'admin' && userId !== CORE_CONFIG.auth.adminUserId) {
-        return this.#core.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
+      if ((authLevel === 'admin' || authLevel === 'api-key') && role !== 'admin' && userId !== CORGE_CONFIG.auth.adminUserId) {
+        return this.#corge.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
       }
 
       const parsedParams = cfg.params && c ? cfg.params.parse(c.req.param()) : c?.req.param() ?? {}
       const parsedQuery = cfg.query && c ? cfg.query.parse(c.req.query()) : c?.req.query() ?? {}
       const parsed = cfg.input ? cfg.input.parse(rawInput ?? {}) : rawInput
 
-      return this.#core.internals.context.run({ env, userId, role }, () =>
+      return this.#corge.internals.context.run({ env, userId, role }, () =>
         this.#executeRouteCore({ key, wfName, cfg, mode, runTask, parseOut, env, userId, role, parsed, parsedParams, parsedQuery, rawBody: opts?.rawBody, c, wait: opts?.wait !== false })
       )
     }
@@ -311,7 +311,7 @@ export class RouterService {
 
     app[method](routePath, async (c) => {
       const userId = await this.authenticateRequest(c, cfg)
-      const role = this.#core.internals.auth.resolveUserRole(userId, c.get('userRole') as DbRole | undefined)
+      const role = this.#corge.internals.auth.resolveUserRole(userId, c.get('userRole') as DbRole | undefined)
       let rawInput: unknown
       let rawText: string | undefined
       if (cfg.rawBody && method !== 'get') {
@@ -349,7 +349,7 @@ export class RouterService {
         origin: (origin, c) => {
           if (!origin) return undefined
           if (
-            CORE_CONFIG.auth.allowedOrigins.some((p: string | RegExp) =>
+            CORGE_CONFIG.auth.allowedOrigins.some((p: string | RegExp) =>
               typeof p === 'string' ? p === origin : p.test(origin)
             )
           ) {
@@ -366,16 +366,16 @@ export class RouterService {
     app.use(
       '*',
       bodyLimit({
-        maxSize: CORE_CONFIG.limits.maxBodyBytes,
-        onError: () => this.#core.errors.httpError(413, 'Payload too large (max 25MiB)', 'PAYLOAD_TOO_LARGE')
+        maxSize: CORGE_CONFIG.limits.maxBodyBytes,
+        onError: () => this.#corge.errors.httpError(413, 'Payload too large (max 25MiB)', 'PAYLOAD_TOO_LARGE')
       })
     )
-    app.onError((err) => this.#core.errors.toHttpError(err).getResponse())
+    app.onError((err) => this.#corge.errors.toHttpError(err).getResponse())
     app.use('*', async (c, next) => {
-      const env: AppBindings = { ...this.#core.env, ...(c.env ?? {}), isDev }
+      const env: AppBindings = { ...this.#corge.env, ...(c.env ?? {}), isDev }
       c.env = env
-      await this.#core.internals.context.run(
-        { env, userId: CORE_CONFIG.auth.adminUserId, role: 'admin' },
+      await this.#corge.internals.context.run(
+        { env, userId: CORGE_CONFIG.auth.adminUserId, role: 'admin' },
         () => next()
       )
     })
@@ -384,24 +384,24 @@ export class RouterService {
 
     app.all('/mcp', async (c) => {
       const userId = await this.authenticateRequest(c, { path: '/mcp', auth: 'user' })
-      return mcpRoute(c.req.raw, userId, this.#core.internals.context.getMcpTools())
+      return mcpRoute(c.req.raw, userId, this.#corge.internals.context.getMcpTools())
     })
 
     return app
   }
 
-  createApp = (init: CoreAppInit = {}) => {
+  createApp = (init: CorgeAppInit = {}) => {
     if (init.emailTemplates) registerEmailTemplates(init.emailTemplates, true)
     if (init.plans) registerPlans(init.plans, true)
     if (init.products) registerProducts(init.products, true)
 
     registerCollections(init.collections ?? {}, true)
-    this.#core.internals.registry.registerAgents(init.agents ?? {}, true)
+    this.#corge.internals.registry.registerAgents(init.agents ?? {}, true)
     if (init.attachmentTypes) registerAttachmentTypes(init.attachmentTypes)
-    this.#core.internals.registry.registerContextCatalog(init.context ?? [], true)
-    this.#core.internals.registry.clearWorkflowTools()
+    this.#corge.internals.registry.registerContextCatalog(init.context ?? [], true)
+    this.#corge.internals.registry.clearWorkflowTools()
 
-    const overrides = init.coreRouteOverrides ?? {}
+    const overrides = init.corgeRouteOverrides ?? {}
     const workflowRegistry: Record<string, WorkflowRegistryEntry> = {}
     const routeRegistryItems: RouteRegistryItem[] = []
 
@@ -409,7 +409,7 @@ export class RouterService {
       .map(([k, v]) => `${k} (${v.description})`)
       .join('; ')
 
-    const rawCoreRoutes: Record<CoreRouteId, Partial<RouteConfig>> = {
+    const rawCoreRoutes: Record<CorgeRouteId, Partial<RouteConfig>> = {
       health: buildHealthRoute(),
       ...coreAuthRoutes,
       ...coreFilesRoutes,
@@ -434,7 +434,7 @@ export class RouterService {
       routeInvokers.set(r, this.#buildRouteInvoker(id, r, workflowRegistry, routeRegistryItems))
     }
 
-    this.#core.internals.workflows.registerRuntime(workflowRegistry)
+    this.#corge.internals.workflows.registerRuntime(workflowRegistry)
 
     const createApp = (isDev = false) => this.#createHonoApp(isDev, allRoutes, routeInvokers)
     const app = createApp(false)
@@ -446,7 +446,7 @@ export class RouterService {
       app,
       devApp,
       workflowRegistry,
-      agents: this.#core.internals.registry.getRegisteredAgents(),
+      agents: this.#corge.internals.registry.getRegisteredAgents(),
       ...cloudFunctions
     }
   }

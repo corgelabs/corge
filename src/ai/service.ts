@@ -3,7 +3,7 @@ import { createVertexAnthropic } from '@ai-sdk/google-vertex/anthropic'
 import { HTTPClient, Mistral } from '@mistralai/mistralai'
 import { TypeSafeClient } from '@typesafe-ai/sdk'
 import { embed, generateText, Output, type LanguageModel, type ModelMessage } from 'ai'
-import type { Core } from '../index'
+import type { Corge } from '../index'
 import {
   DEFAULT_EXTRACTION_PROMPT,
   envelopeSchema,
@@ -28,15 +28,15 @@ let cachedMistralKey = ''
 let cachedMistral: Mistral | undefined
 
 export class AiService {
-  readonly #core: Core
+  readonly #corge: Corge
 
-  constructor(coreClient: Core) {
-    this.#core = coreClient
+  constructor(corgeClient: Corge) {
+    this.#corge = corgeClient
   }
 
   #vertexProviders = () => {
-    const project = this.#core.config.gcpProject
-    const location = this.#core.config.models.vertexLocation
+    const project = this.#corge.config.gcpProject
+    const location = this.#corge.config.models.vertexLocation
     const key = `${project}:${location}`
     if (!cachedVertexAnthropic || !cachedVertexEmbedding || cachedVertexKey !== key) {
       cachedVertexKey = key
@@ -49,17 +49,17 @@ export class AiService {
     return { vertexAnthropic: cachedVertexAnthropic, vertexEmbeddingProvider: cachedVertexEmbedding }
   }
 
-  languageModel = (modelId: string = this.#core.config.models.vertex): LanguageModel =>
+  languageModel = (modelId: string = this.#corge.config.models.vertex): LanguageModel =>
     this.#vertexProviders().vertexAnthropic(modelId)
 
   #jevClient = (apiKey: string): TypeSafeClient =>
     cachedJev && cachedJevKey === apiKey
       ? cachedJev
       : ((cachedJevKey = apiKey),
-        (cachedJev = new TypeSafeClient({ apiKey, defaultModel: this.#core.config.models.jev })))
+        (cachedJev = new TypeSafeClient({ apiKey, defaultModel: this.#corge.config.models.jev })))
 
   #mistralClient = (): Mistral => {
-    const apiKey = this.#core.env.MISTRAL_API_KEY
+    const apiKey = this.#corge.env.MISTRAL_API_KEY
     if (cachedMistral && cachedMistralKey === apiKey) return cachedMistral
     const httpClient = new HTTPClient()
     httpClient.addHook('response', async (res) => {
@@ -67,7 +67,7 @@ export class AiService {
       const remHeader = res.headers.get('x-ratelimit-remaining-ocr-pages-minute')
       const remaining = res.status === 429 ? 0 : remHeader !== null ? Number(remHeader) : undefined
       if (limit > 0 || remaining !== undefined) {
-        await this.#core.internals.resilience.syncLimit('mistral', remaining, limit)
+        await this.#corge.internals.resilience.syncLimit('mistral', remaining, limit)
       }
     })
     cachedMistralKey = apiKey
@@ -83,12 +83,12 @@ export class AiService {
   }
 
   describeImage = async (documentUrl: string, signal?: AbortSignal): Promise<string> =>
-    this.#core.internals.resilience.circuitBreaker('vertex', async () => {
-      await this.#core.internals.resilience.acquireLimit('ai')
+    this.#corge.internals.resilience.circuitBreaker('vertex', async () => {
+      await this.#corge.internals.resilience.acquireLimit('ai')
       const match = /^data:([^;,]+);base64,(.+)$/.exec(documentUrl)
       const mediaType = match?.[1] ?? 'image/jpeg'
       const base64 = match?.[2] ?? documentUrl
-      const modelId = this.#core.config.models.vertex
+      const modelId = this.#corge.config.models.vertex
       const { text } = await generateText({
         model: this.languageModel(modelId),
         abortSignal: signal,
@@ -110,14 +110,14 @@ export class AiService {
   #vertexVisionFallback = async (documentUrl: string, opts?: VisionOptions): Promise<VisionResult> => {
     const markdown = await this.describeImage(documentUrl, opts?.signal)
     let annotation: Record<string, unknown> = {}
-    const modelId = this.#core.config.models.vertex
+    const modelId = this.#corge.config.models.vertex
     let usage: AiUsageSummary | undefined
     if (opts?.schema) {
-      await this.#core.internals.resilience.acquireLimit('ai')
+      await this.#corge.internals.resilience.acquireLimit('ai')
       const match = /^data:([^;,]+);base64,(.+)$/.exec(documentUrl)
       const mediaType = match?.[1] ?? 'application/pdf'
       const base64 = match?.[2] ?? documentUrl
-      const res = await this.#core.internals.resilience.circuitBreaker('vertex', () =>
+      const res = await this.#corge.internals.resilience.circuitBreaker('vertex', () =>
         generateText({
           model: this.languageModel(modelId),
           abortSignal: opts.signal,
@@ -150,13 +150,13 @@ export class AiService {
     const isImage = documentUrl.startsWith('data:image')
     const hasSchema = Boolean(opts?.schema)
     const allowFallback = opts?.fallbackVision !== false
-    await this.#core.internals.payments.enforceAiQuota()
+    await this.#corge.internals.payments.enforceAiQuota()
 
-    return this.#core.internals.resilience.circuitBreaker(
+    return this.#corge.internals.resilience.circuitBreaker(
       'mistral',
       async () => {
-        await this.#core.internals.resilience.acquireLimit('mistral')
-        const modelId = this.#core.config.models.mistralOcr
+        await this.#corge.internals.resilience.acquireLimit('mistral')
+        const modelId = this.#corge.config.models.mistralOcr
         const result = await this.#mistralClient().ocr.process(
           {
             model: modelId,
@@ -177,7 +177,7 @@ export class AiService {
         )
         const pagesProcessed = result.usageInfo?.pagesProcessed ?? result.pages.length
         if (pagesProcessed > 1) {
-          await this.#core.internals.resilience.chargeLimit('mistral', pagesProcessed - 1)
+          await this.#corge.internals.resilience.chargeLimit('mistral', pagesProcessed - 1)
         }
         let markdown = formatOcrPages(result.pages)
         const annotation = JSON.parse(result.documentAnnotation ?? '{}') as Record<string, unknown>
@@ -187,7 +187,7 @@ export class AiService {
         }
 
         const usage = normalizeUsage(modelId, null, pagesProcessed)
-        await this.#core.internals.payments.trackAiUsage({
+        await this.#corge.internals.payments.trackAiUsage({
           model: usage.model,
           inputTokens: usage.inputTokens,
           outputTokens: usage.outputTokens,
@@ -197,24 +197,24 @@ export class AiService {
         return { markdown, annotation, usage }
       },
       allowFallback ? () => this.#vertexVisionFallback(documentUrl, opts) : undefined,
-      { isDev: this.#core.env.isDev }
+      { isDev: this.#corge.env.isDev }
     )
   }
 
   decide = async (state: unknown, questions: Record<string, JevQuestion>): Promise<DecideResult> =>
-    this.#core.internals.resilience.circuitBreaker(
+    this.#corge.internals.resilience.circuitBreaker(
       'jev',
       async () => {
-        await this.#core.internals.payments.enforceAiQuota()
-        await this.#core.internals.resilience.acquireLimit('jev')
-        const raw = await this.#jevClient(this.#core.env.TYPESAFE_API_KEY).systemOne({
+        await this.#corge.internals.payments.enforceAiQuota()
+        await this.#corge.internals.resilience.acquireLimit('jev')
+        const raw = await this.#jevClient(this.#corge.env.TYPESAFE_API_KEY).systemOne({
           state: state as never,
           questions: questions as never
         })
         const parsed = envelopeSchema.safeParse(raw)
         if (parsed.success && Object.keys(questions).every((q) => parsed.data.answers[q]?.type === questions[q]?.type)) {
-          const usage = normalizeUsage(parsed.data.model || this.#core.config.models.jev, null)
-          await this.#core.internals.payments.trackAiUsage({
+          const usage = normalizeUsage(parsed.data.model || this.#corge.config.models.jev, null)
+          await this.#corge.internals.payments.trackAiUsage({
             model: usage.model,
             inputTokens: usage.inputTokens,
             outputTokens: usage.outputTokens,
@@ -229,17 +229,17 @@ export class AiService {
         throw new Error('Jev decision returned no valid answer envelope')
       },
       undefined,
-      { isDev: this.#core.env.isDev }
+      { isDev: this.#corge.env.isDev }
     )
 
   generate = async <O = string>(
     promptOrMessages: string | ModelMessage[],
     opts?: AiGenerateOptions<O>
   ): Promise<AiGenerateResult<O>> =>
-    this.#core.internals.resilience.circuitBreaker('vertex', async () => {
-      await this.#core.internals.payments.enforceAiQuota()
-      await this.#core.internals.resilience.acquireLimit('ai')
-      const modelId = opts?.model ?? this.#core.config.models.vertex
+    this.#corge.internals.resilience.circuitBreaker('vertex', async () => {
+      await this.#corge.internals.payments.enforceAiQuota()
+      await this.#corge.internals.resilience.acquireLimit('ai')
+      const modelId = opts?.model ?? this.#corge.config.models.vertex
       const model = this.languageModel(modelId)
       const messages: ModelMessage[] =
         typeof promptOrMessages === 'string'
@@ -255,7 +255,7 @@ export class AiService {
           abortSignal: opts.signal
         })
         const norm = normalizeUsage(modelId, res.usage)
-        await this.#core.internals.payments.trackAiUsage({
+        await this.#corge.internals.payments.trackAiUsage({
           model: norm.model,
           inputTokens: norm.inputTokens,
           outputTokens: norm.outputTokens,
@@ -276,7 +276,7 @@ export class AiService {
         abortSignal: opts?.signal
       })
       const norm = normalizeUsage(modelId, res.usage)
-      await this.#core.internals.payments.trackAiUsage({
+      await this.#corge.internals.payments.trackAiUsage({
         model: norm.model,
         inputTokens: norm.inputTokens,
         outputTokens: norm.outputTokens,
@@ -294,10 +294,10 @@ export class AiService {
     const normalized = text.trim()
     if (normalized.length < 15) return null
     try {
-      return await this.#core.internals.resilience.circuitBreaker('vertex', async () => {
-        await this.#core.internals.resilience.acquireLimit('ai')
+      return await this.#corge.internals.resilience.circuitBreaker('vertex', async () => {
+        await this.#corge.internals.resilience.acquireLimit('ai')
         const embeddingModel = this.#vertexProviders().vertexEmbeddingProvider.textEmbeddingModel(
-          this.#core.config.models.vertexEmbedding
+          this.#corge.config.models.vertexEmbedding
         )
         const { embedding } = await embed({
           model: embeddingModel,

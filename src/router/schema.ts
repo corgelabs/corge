@@ -14,7 +14,7 @@ import {
   emailLogsQuerySchema, emailWebhookParamsSchema, sendBatchEmailInputSchema, sendBatchEmailResultSchema,
   sendEmailInputSchema, sendEmailResultSchema, type EmailTemplatesMap, type SendEmailInput
 } from '../emails'
-import type { Core } from '../index'
+import type { Corge } from '../index'
 import {
   cancelSubscriptionInput, changeTierInput, chargeResultSchema, checkoutSessionResultSchema,
   createCheckoutInput, createInvoiceInput, createPaymentLinkInput, directChargeInput, invoiceResultSchema,
@@ -49,7 +49,7 @@ export interface RouteExecutionContext<
   P = Record<string, string>,
   Q = Record<string, string>
 > {
-  core: Core
+  corge: Corge
   env: AppBindings
   userId: EntryId
   role: DbRole
@@ -89,7 +89,7 @@ export interface RouteConfig<I = any, O = any, P = any, Q = any> extends BaseRou
   handler: (ctx: RouteExecutionContext<I, P, Q>) => Response | O | Promise<Response | O>
 }
 
-export type CoreRouteId =
+export type CorgeRouteId =
   | 'health'
   | 'auth.custom-token'
   | 'auth.session.create'
@@ -142,11 +142,11 @@ export type CoreRouteId =
   | 'payments.status'
   | 'payments.webhook'
 
-export type CoreRouteOverride = Partial<
+export type CorgeRouteOverride = Partial<
   Pick<RouteConfig, 'auth' | 'rateLimit' | 'guard' | 'mcp' | 'tool' | 'timeout' | 'retry' | 'description'>
 >
 
-export type CoreRouteOverrides = Partial<Record<CoreRouteId, CoreRouteOverride>>
+export type CorgeRouteOverrides = Partial<Record<CorgeRouteId, CorgeRouteOverride>>
 
 export interface WorkflowRegistryEntry {
   name: string
@@ -166,8 +166,8 @@ export interface WorkflowRegistryEntry {
   ) => Promise<unknown>
 }
 
-export interface CoreAppInit {
-  coreRouteOverrides?: CoreRouteOverrides
+export interface CorgeAppInit {
+  corgeRouteOverrides?: CorgeRouteOverrides
   attachmentTypes?: AttachmentTypesMap
   emailTemplates?: EmailTemplatesMap
   plans?: PlansMap
@@ -182,9 +182,9 @@ export const defineRoute = <C extends RouteConfig<any, any, any, any>>(config: C
 
 export const defineRoutes = <T extends Record<string, RouteConfig<any, any, any, any>>>(routes: T): T => routes
 
-export const defineRouteOverrides = <T extends CoreRouteOverrides>(overrides: T): T => overrides
+export const defineRouteOverrides = <T extends CorgeRouteOverrides>(overrides: T): T => overrides
 
-export const CORE_ROUTE_DEFAULTS: Record<CoreRouteId, BaseRouteConfig> = {
+export const CORGE_ROUTE_DEFAULTS: Record<CorgeRouteId, BaseRouteConfig> = {
   health: { mode: 'rest', method: 'GET', path: '/health', auth: 'public', description: 'Public service health check endpoint.' },
   'auth.custom-token': { mode: 'rest', method: 'POST', path: '/auth/custom-token', auth: 'admin', input: customTokenBody },
   'auth.session.create': { mode: 'rest', method: 'POST', path: '/auth/session', auth: 'public', input: sessionBody },

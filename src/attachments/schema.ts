@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { CORE_CONFIG } from '../config'
+import { CORGE_CONFIG } from '../config'
 import { fileRef, fileScan } from '../files'
 
 export const processedAttachment = z.union([
@@ -38,7 +38,7 @@ export const processAttachmentsInput = z.object({
   refs: z
     .array(attachmentInput)
     .min(1)
-    .refine((arr) => arr.length <= CORE_CONFIG.limits.maxAttachments, 'Too many attachments')
+    .refine((arr) => arr.length <= CORGE_CONFIG.limits.maxAttachments, 'Too many attachments')
 })
 export const processAttachmentsOutput = z.object({ attachments: z.array(processedAttachment) })
 export type ProcessAttachmentsInput = z.input<typeof processAttachmentsInput>
