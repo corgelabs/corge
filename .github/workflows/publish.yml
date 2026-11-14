@@ -10,6 +10,10 @@ permissions:
   contents: write
   id-token: write
 
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   publish:
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
@@ -29,7 +33,9 @@ jobs:
       - name: Auto-bump version from latest npm release
         id: bump
         run: |
-          PUBLISHED=$(npm view @corgelabs/corge version 2>/dev/null || echo "1.0.0")
+          NPM_VER=$(npm view @corgelabs/corge version 2>/dev/null || echo "1.0.0")
+          GIT_VER=$(git show origin/main:package.json | node -pe "JSON.parse(fs.readFileSync(0,'utf8')).version")
+          PUBLISHED=$(NPM_VER="$NPM_VER" GIT_VER="$GIT_VER" node -pe 'const [a, b] = [process.env.NPM_VER, process.env.GIT_VER]; const v = s => s.replace(/^v/, "").split(".").map(Number); v(a).reduce((d, n, i) => d || (n - (v(b)[i] ?? 0)), 0) >= 0 ? a : b')
           npm version "$PUBLISHED" --no-git-tag-version --allow-same-version
           COMMIT_MSG=$(git log -1 --pretty=%B)
           if echo "$COMMIT_MSG" | grep -qE '(BREAKING CHANGE|^[a-z]+(\([^)]+\))?!:)'; then
@@ -48,8 +54,11 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -- package.json package-lock.json
+          git fetch origin main
+          git rebase origin/main
+          npm version "${{ steps.bump.outputs.version }}" --no-git-tag-version --allow-same-version
           git add package.json package-lock.json
           git commit -m "chore(release): ${{ steps.bump.outputs.version }} [skip ci]"
           git tag -f "${{ steps.bump.outputs.version }}"
-          git push origin HEAD:main
-          git push -f origin "${{ steps.bump.outputs.version }}"
+          git push --atomic origin HEAD:main "+refs/tags/${{ steps.bump.outputs.version }}:refs/tags/${{ steps.bump.outputs.version }}"
