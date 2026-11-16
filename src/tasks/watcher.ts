@@ -26,7 +26,6 @@ const batchQueue: BatchItem[] = []
 let flushScheduled = false
 let nextShard = 0
 let activeWatcherCount = 0
-let shardsUnavailable = false
 
 export class TaskWatcherEngine {
   readonly #corge: Corge
@@ -71,7 +70,7 @@ export class TaskWatcherEngine {
           }
         })
 
-      let targetParent = shardsUnavailable ? queueBase : queueParent
+      let targetParent = queueParent
       let lastErr: Error | null = null
       for (let a = 0; a < 3; a++) {
         try {
@@ -89,10 +88,7 @@ export class TaskWatcherEngine {
                 rateLimits: { maxDispatchesPerSecond: 500, maxConcurrentDispatches: 1000 }
               })
             }).catch(() => null)
-            if (!createRes?.ok) {
-              shardsUnavailable = true
-              targetParent = queueBase
-            }
+            if (!createRes?.ok) targetParent = queueBase
             continue
           }
           if (!res.ok) throw new Error(`Cloud Tasks batchCreate (${res.status}): ${await res.text()}`)

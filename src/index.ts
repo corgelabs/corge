@@ -1,7 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { EventEmitter } from 'node:events'
-
-EventEmitter.defaultMaxListeners = 100
 import { AiService } from './ai'
 import {
   AttachmentsService,
@@ -78,6 +76,8 @@ export interface CorgeRuntimeState {
   role: DbRole
   step?: StepRunner
 }
+
+EventEmitter.defaultMaxListeners = 100
 
 const corgeStorage = new AsyncLocalStorage<CorgeRuntimeState>()
 

@@ -322,23 +322,6 @@ const apiJson = async <T = unknown>(
   return { status: res.status, data, headers: res.headers }
 }
 
-const apiWorkflowJson = async <T = unknown>(
-  path: string,
-  init: RequestInit = {},
-  useBearer = false,
-  label?: string
-): Promise<{ status: number; data: T; headers: Headers }> => {
-  const initial = await apiJson<T & { taskId?: string }>(path, init, useBearer, label)
-  if (initial.status !== 202 || !initial.data?.taskId) return initial
-  const taskId = initial.data.taskId
-  for (let i = 0; i < 240; i++) {
-    await sleep(500)
-    const poll = await apiJson<T>(`/api/tasks/${taskId}`, {}, useBearer, `${label ?? path}:poll-${i + 1}`)
-    if (poll.status !== 202) return poll
-  }
-  return initial
-}
-
 const mcpCall = async <T = unknown>(method: string, params: Record<string, unknown> = {}, id = 1): Promise<T> => {
   const label = params.name ? `mcp:${method}:${String(params.name)}` : `mcp:${method}`
   const res = await apiFetch(
@@ -1319,7 +1302,8 @@ describe('4. Batch Attachment Processing & Async Task Lifecycle (/api/process-at
     const allRefs = fixtures.map((f) => uploadedRefs.get(f.type)!)
     assert.equal(allRefs.length, Object.keys(ACTIVE_ATTACHMENT_TYPES).length + 1)
 
-    const procRes = await apiWorkflowJson<{
+    const t0 = performance.now()
+    const procRes = await apiJson<{
       attachments: {
         ref: string
         scan?: { type: string; confidence: number; fields: Record<string, unknown>; markdown: string }
@@ -1335,7 +1319,9 @@ describe('4. Batch Attachment Processing & Async Task Lifecycle (/api/process-at
       false,
       `all-${allRefs.length}-attachments`
     )
+    const elapsedMs = performance.now() - t0
     assert.equal(procRes.status, 200)
+    assert.ok(elapsedMs < 20_000, `Expected parallel fan-out < 20s, took ${Math.round(elapsedMs)}ms`)
     assert.equal(procRes.data.attachments.length, allRefs.length)
     procRes.data.attachments.forEach((item, idx) => {
       const fixture = fixtures[idx]!
@@ -1474,7 +1460,7 @@ describe('5. Dynamic Custom Domain Endpoints (/api/*)', () => {
       }
 
       const validPayload = synthesizeDomainInput(route)
-      const execRes = await (route.mode === 'workflow' ? apiWorkflowJson : apiJson)<unknown>(
+      const execRes = await apiJson<unknown>(
         route.path,
         {
           method: route.method,
@@ -2509,7 +2495,7 @@ describe('9. Corge SDK Primitives, Sign-Out, GDPR Erase & Zero-Leftover Verifica
   })
 
   test('POST /api/erase-user & Final Zero-Leftover Verification (Auth, Firestore file/chat/_tasks & Cloud Storage)', async () => {
-    const eraseRes = await apiWorkflowJson<{
+    const eraseRes = await apiJson<{
       userId: string
       erasedFiles: number
       erasedChats: number
