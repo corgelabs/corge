@@ -144,7 +144,7 @@ export const formatContextBlock = (entries: readonly ContextEntry[]): string => 
         `<source path=${JSON.stringify(entry.path)} description=${JSON.stringify(entry.description)}>\n${entry.markdown.trim()}\n</source>`
     )
     .join('\n')
-  return `<infobase_context>\n${sources}\n</infobase_context>`
+  return `<infobase_context scope="current_turn" note="Selected dynamically for the latest user message only; prior assistant turns were grounded in their own per-turn InfoBase sources and tool runs.">\n${sources}\n</infobase_context>`
 }
 
 export const buildDynamicContextBlock = (input: DynamicContextBlockInput): string => {
@@ -193,7 +193,7 @@ export const PUBLIC_MESSAGE_FIELDS = [
   'createdAt'
 ] as const
 
-export const RECALL_MESSAGE_FIELDS = ['id', 'chatId', 'role', 'content', 'attachments'] as const
+export const RECALL_MESSAGE_FIELDS = ['id', 'chatId', 'role', 'content', 'attachments', 'toolInvocations'] as const
 
 export const mapFirestoreMessageDoc = (
   id: string,
@@ -229,6 +229,21 @@ export const mapFirestoreMessageDoc = (
   }
 }
 
+export const summarizeToolItems = (invocations?: readonly unknown[]): string => {
+  if (!invocations?.length) return ''
+  const lines = invocations
+    .map((raw) => {
+      if (!raw || typeof raw !== 'object') return ''
+      const item = raw as Record<string, unknown>
+      const kind = item.type === 'tool-call' ? 'call' : item.type === 'tool-result' ? 'result' : 'tool'
+      const name = typeof item.toolName === 'string' ? item.toolName : 'unknown'
+      const payload = kind === 'call' ? (item.input ?? item.args) : (item.output ?? item.result)
+      return `${kind}:${name}=${JSON.stringify(payload ?? null).slice(0, 1_500)}`
+    })
+    .filter(Boolean)
+  return lines.length > 0 ? `[prior_tool_runs:\n${lines.join('\n')}\n]` : ''
+}
+
 export const toModelMessageFromDoc = (
   doc: ChatMessagePublic,
   attachmentSummaries?: ReadonlyMap<string, string>
@@ -237,7 +252,8 @@ export const toModelMessageFromDoc = (
     doc.role === 'user' && doc.attachments?.length && attachmentSummaries
       ? doc.attachments.map((r) => attachmentSummaries.get(r)).filter((s): s is string => Boolean(s))
       : []
-  const text = [doc.content.trim(), ...attLines].filter(Boolean).join('\n\n')
+  const toolSummary = doc.role === 'assistant' ? summarizeToolItems(doc.toolInvocations) : ''
+  const text = [toolSummary, doc.content.trim(), ...attLines].filter(Boolean).join('\n\n')
   if (!text) return undefined
   if (doc.role === 'assistant') {
     return { role: 'assistant', content: [{ type: 'text', text }] }

@@ -26,6 +26,7 @@ import {
   mapFirestoreMessageDoc,
   PUBLIC_MESSAGE_FIELDS,
   RECALL_MESSAGE_FIELDS,
+  summarizeToolItems,
   toModelMessageFromDoc
 } from './utils'
 
@@ -193,7 +194,12 @@ export class ChatContextEngine {
       return snap.docs
         .map((d) => {
           const data = d.data()
-          const content = typeof data.content === 'string' ? data.content.trim() : ''
+          const rawContent = typeof data.content === 'string' ? data.content.trim() : ''
+          const toolNote =
+            data.role === 'assistant' && Array.isArray(data.toolInvocations)
+              ? summarizeToolItems(data.toolInvocations)
+              : ''
+          const content = [toolNote, rawContent].filter(Boolean).join('\n\n')
           const attachments = Array.isArray(data.attachments) ? (data.attachments as FileRef[]) : undefined
           if (!content && !attachments?.length) return undefined
           return {
