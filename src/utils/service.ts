@@ -65,6 +65,7 @@ export class ErrorsService {
       headers['retry-after'] = String(Math.max(1, Math.ceil(retryAfterMs / 1000)))
     }
     return new HTTPException(status, {
+      message: error,
       res: new Response(JSON.stringify(this.buildErrorBody(error, status, code, retryAfterMs)), { status, headers })
     })
   }

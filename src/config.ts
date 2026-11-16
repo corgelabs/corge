@@ -315,7 +315,7 @@ export const CORGE_CONFIG: CoreConfig = {
   },
   tasks: {
     useCloudTasks: Boolean(process.env.K_SERVICE),
-    defaultShardsCount: 1,
+    defaultShardsCount: 20,
     batchCreateSize: 100,
     maxAttempts: 3,
     hedgeAfterMs: 65_000,
