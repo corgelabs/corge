@@ -76,7 +76,7 @@ export const corgeAliasPlugin = (cwd = process.cwd()): Plugin => ({
   }
 })
 
-export const buildConsumerApp = async (cwd = process.cwd()): Promise<void> => {
+export const buildConsumerApp = async (cwd = process.cwd(), target?: 'prod' | 'dev'): Promise<void> => {
   const distDir = join(cwd, 'dist')
   rmSync(distDir, { recursive: true, force: true })
 
@@ -89,6 +89,7 @@ export const buildConsumerApp = async (cwd = process.cwd()): Promise<void> => {
     format: 'cjs',
     packages: 'external',
     plugins: [corgeAliasPlugin(cwd)],
+    ...(target ? { define: { 'process.env.CORGE_DEPLOY_TARGET': JSON.stringify(target) } } : {}),
     footer: { js: 'module.exports = functions;' },
     outfile: 'dist/index.cjs',
     sourcemap: true

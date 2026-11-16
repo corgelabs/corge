@@ -64,7 +64,7 @@ export const deployConsumerApp = async (
     process.exit(1)
   }
 
-  await buildConsumerApp(cwd)
+  await buildConsumerApp(cwd, target)
 
   const corgeRoot = getCorgeRootDir()
   const firebaseJsonPath = join(cwd, 'firebase.json')
@@ -149,6 +149,19 @@ export const deployConsumerApp = async (
     const prodBucket = { bucket: `${project}.firebasestorage.app`, rules: 'storage.rules' }
     const devBucket = { bucket: `${project}-dev`, rules: 'storage.rules' }
 
+    if (
+      Array.isArray(cfg.functions) &&
+      cfg.functions.length > 0 &&
+      typeof cfg.functions[0] === 'object' &&
+      cfg.functions[0] !== null
+    ) {
+      ;(cfg.functions[0] as Record<string, unknown>).codebase = target
+    } else if (cfg.functions && typeof cfg.functions === 'object' && !Array.isArray(cfg.functions)) {
+      ;(cfg.functions as Record<string, unknown>).codebase = target
+    } else {
+      cfg.functions = [{ source: '.', configDir: 'dist', codebase: target, runtime: 'nodejs24' }]
+    }
+
     cfg.firestore = target === 'prod' ? [prodDb] : [devDb]
     cfg.storage = target === 'prod' ? [prodBucket] : [devBucket]
     writeFileSync(firebaseJsonPath, JSON.stringify(cfg, null, 2) + '\n', 'utf8')
@@ -169,8 +182,8 @@ export const deployConsumerApp = async (
 
     const onlyTargets =
       target === 'prod'
-        ? `functions:${project},functions:${project}-tasks,firestore:${project},storage`
-        : `functions:${project}-dev,functions:${project}-tasks-dev,firestore:${project}-dev,storage`
+        ? `functions:prod,firestore:${project},storage`
+        : `functions:dev,firestore:${project}-dev,storage`
 
     const deployRes = spawnSync(
       'npx',

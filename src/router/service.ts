@@ -98,11 +98,20 @@ export class RouterService {
     })
 
     const fnName = CORGE_CONFIG.gcpProject
+    const deployTarget = process.env.CORGE_DEPLOY_TARGET
     const entries: readonly (readonly [string, unknown])[] = [
-      [fnName, httpHandler],
-      [`${fnName}-dev`, devHttpHandler],
-      [`${fnName}-tasks`, tasksHandler],
-      [`${fnName}-tasks-dev`, devTasksHandler]
+      ...(deployTarget !== 'dev'
+        ? ([
+            [fnName, httpHandler],
+            [`${fnName}-tasks`, tasksHandler]
+          ] as const)
+        : []),
+      ...(deployTarget !== 'prod'
+        ? ([
+            [`${fnName}-dev`, devHttpHandler],
+            [`${fnName}-tasks-dev`, devTasksHandler]
+          ] as const)
+        : [])
     ]
     const functions: Record<string, unknown> = {}
     for (const [dashedName, handler] of entries) {
