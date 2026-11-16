@@ -26,6 +26,7 @@ let cachedJev: TypeSafeClient | undefined
 
 let cachedMistralKey = ''
 let cachedMistral: Mistral | undefined
+const MISTRAL_ATTEMPT_TIMEOUT_MS = 18_000
 
 export class AiService {
   readonly #corge: Corge
@@ -61,7 +62,18 @@ export class AiService {
   #mistralClient = (): Mistral => {
     const apiKey = this.#corge.env.MISTRAL_API_KEY
     if (cachedMistral && cachedMistralKey === apiKey) return cachedMistral
-    const httpClient = new HTTPClient()
+    const httpClient = new HTTPClient({
+      fetcher: async (input, init) => {
+        const baseReq = input instanceof Request ? input : new Request(input, init)
+        const headers = new Headers(baseReq.headers)
+        headers.set('connection', 'close')
+        const body =
+          baseReq.method !== 'GET' && baseReq.method !== 'HEAD' ? await baseReq.clone().arrayBuffer() : undefined
+        const timeoutSig = AbortSignal.timeout(MISTRAL_ATTEMPT_TIMEOUT_MS)
+        const signal = baseReq.signal ? AbortSignal.any([baseReq.signal, timeoutSig]) : timeoutSig
+        return fetch(baseReq.url, { method: baseReq.method, headers, body, signal })
+      }
+    })
     httpClient.addHook('response', async (res) => {
       const limit = Number(res.headers.get('x-ratelimit-limit-ocr-pages-minute') ?? '0')
       const remHeader = res.headers.get('x-ratelimit-remaining-ocr-pages-minute')
@@ -74,9 +86,10 @@ export class AiService {
     return (cachedMistral = new Mistral({
       apiKey,
       httpClient,
+      timeoutMs: 45_000,
       retryConfig: {
         strategy: 'backoff',
-        backoff: { initialInterval: 5000, maxInterval: 20000, exponent: 1.5, maxElapsedTime: 90000 },
+        backoff: { initialInterval: 800, maxInterval: 3_000, exponent: 1.5, maxElapsedTime: 45_000 },
         retryConnectionErrors: true
       }
     }))
