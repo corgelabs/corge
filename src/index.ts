@@ -1,4 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
+import { EventEmitter } from 'node:events'
+
+EventEmitter.defaultMaxListeners = 100
 import { AiService } from './ai'
 import {
   AttachmentsService,

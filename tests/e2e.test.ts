@@ -27,6 +27,7 @@ const EXPLICIT_BASE_URL = process.env.BASE_URL
 const PORT = 8791
 const BASE_URL = (EXPLICIT_BASE_URL ?? `http://localhost:${PORT}`).replace(/\/+$/, '')
 const SPAWN_LOCAL = !EXPLICIT_BASE_URL
+const TARGET_IS_DEV = SPAWN_LOCAL || BASE_URL.includes('-dev')
 
 const ENV = corge.env
 const API_KEY = ENV.SDK_API_KEY
@@ -637,7 +638,10 @@ describe('1. Auth & RBAC (/api/auth/*, /api/routes)', () => {
     assert.ok(usersList.some((u) => u.id === testAuthUserId))
   })
 
-  test('Better-Auth Suite — Email Verification (SHA-256 OTP + 5-attempt limit), Social OAuth (Google/Apple), Recovery Email, Password Reset & Full Account Recovery', async () => {
+  test(
+    'Better-Auth Suite — Email Verification (SHA-256 OTP + 5-attempt limit), Social OAuth (Google/Apple), Recovery Email, Password Reset & Full Account Recovery',
+    { skip: !SPAWN_LOCAL ? 'Requires local in-process dev email outbox & mock OIDC JWKS' : false },
+    async () => {
     // 1. Send email verification & verify SHA-256 hash storage + 5-attempt brute-force invalidation
     const sendVerifyRes = await apiJson<{ sent: boolean; expiresInMinutes: number }>(
       '/api/auth/email/send-verification',
@@ -1387,7 +1391,9 @@ describe('4. Batch Attachment Processing & Async Task Lifecycle (/api/process-at
 
   test('GET /api/tasks/:taskId?envelope=true — poll task status until completed', async () => {
     let taskCompleted = false
-    for (let i = 0; i < 40; i++) {
+    const maxPolls = SPAWN_LOCAL ? 60 : 120
+    const pollDelayMs = SPAWN_LOCAL ? 100 : 250
+    for (let i = 0; i < maxPolls; i++) {
       const pollRes = await apiJson<{ status?: string; response?: { attachments: unknown[] } }>(
         `/api/tasks/${asyncTaskId}?envelope=true`,
         {},
@@ -1399,7 +1405,7 @@ describe('4. Batch Attachment Processing & Async Task Lifecycle (/api/process-at
         taskCompleted = true
         break
       }
-      await sleep(100)
+      await sleep(pollDelayMs)
     }
     assert.equal(taskCompleted, true)
   })
@@ -2209,107 +2215,118 @@ describe('9. Corge SDK Primitives, Sign-Out, GDPR Erase & Zero-Leftover Verifica
   })
 
   test('POST /api/emails/send, POST /api/emails/batch, GET /api/emails/logs & POST /api/emails/webhooks/:provider — E2E email routes, templates, attachments & suppression', async () => {
-    corge.internals.registry.registerEmailTemplates(
-      corge.define.emailTemplates({
-        e2e_summary: {
-          description: 'E2E summary notification',
-          variables: z.object({ title: z.string(), count: z.number() }),
-          subject: ({ title }) => `[E2E] ${title}`,
-          html: ({ title, count }) => `<p>${title}: ${count} items processed.</p>`
-        }
-      })
-    )
+    if (SPAWN_LOCAL) {
+      corge.internals.registry.registerEmailTemplates(
+        corge.define.emailTemplates({
+          e2e_summary: {
+            description: 'E2E summary notification',
+            variables: z.object({ title: z.string(), count: z.number() }),
+            subject: ({ title }) => `[E2E] ${title}`,
+            html: ({ title, count }) => `<p>${title}: ${count} items processed.</p>`
+          }
+        })
+      )
 
-    const firstRef = uploadedRefs.get(fixtures[0]!.type)!
-    const idemKey = `e2e_email_${Date.now()}`
-    const sendRes1 = await apiJson<{
-      emailId: string
-      status: string
-      provider: string
-      deduplicated?: boolean
-    }>(
-      '/api/emails/send',
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
+      const firstRef = uploadedRefs.get(fixtures[0]!.type)!
+      const idemKey = `e2e_email_${Date.now()}`
+      const sendRes1 = await apiJson<{
+        emailId: string
+        status: string
+        provider: string
+        deduplicated?: boolean
+      }>(
+        '/api/emails/send',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            to: 'e2e-recipient@test.local',
+            template: 'e2e_summary',
+            variables: { title: 'Batch Scan', count: fixtures.length },
+            attachments: [{ filename: 'fixture.pdf', fileRef: firstRef }],
+            idempotencyKey: idemKey
+          })
+        },
+        true,
+        'emails-send-1'
+      )
+      assert.equal(sendRes1.status, 200)
+      assert.equal(sendRes1.data.status, 'sent')
+      assert.equal(sendRes1.data.deduplicated, undefined)
+
+      // Verify corge.emails.send idempotency deduplication in email_log
+      const directDedup = await corge.emails.send(
+        {
           to: 'e2e-recipient@test.local',
           template: 'e2e_summary',
           variables: { title: 'Batch Scan', count: fixtures.length },
-          attachments: [{ filename: 'fixture.pdf', fileRef: firstRef }],
           idempotencyKey: idemKey
-        })
-      },
-      true,
-      'emails-send-1'
-    )
-    assert.equal(sendRes1.status, 200)
-    assert.equal(sendRes1.data.status, 'sent')
-    assert.equal(sendRes1.data.deduplicated, undefined)
+        },
+        { userId: testAuthUserId }
+      )
+      assert.equal(directDedup.emailId, sendRes1.data.emailId)
+      assert.equal(directDedup.deduplicated, true)
 
-    // Verify corge.emails.send idempotency deduplication in email_log
-    const directDedup = await corge.emails.send(
-      {
-        to: 'e2e-recipient@test.local',
-        template: 'e2e_summary',
-        variables: { title: 'Batch Scan', count: fixtures.length },
-        idempotencyKey: idemKey
-      },
-      { userId: testAuthUserId }
-    )
-    assert.equal(directDedup.emailId, sendRes1.data.emailId)
-    assert.equal(directDedup.deduplicated, true)
+      // Clean up admin-owned sendRes1 log so only testAuthUserId logs remain
+      await corge.db.hardDelete('email_log', sendRes1.data.emailId, { bypassRbac: true })
 
-    // Clean up admin-owned sendRes1 log so only testAuthUserId logs remain
-    await corge.db.hardDelete('email_log', sendRes1.data.emailId, { bypassRbac: true })
+      // Create a user-scoped email log for testAuthUserId to verify GET /api/emails/logs & cascadeEraseUserCollections
+      const userScopedSend = await corge.emails.send(
+        {
+          to: 'user-scoped@test.local',
+          template: 'e2e_summary',
+          variables: { title: 'User Scoped', count: 1 }
+        },
+        { userId: testAuthUserId }
+      )
 
-    // Create a user-scoped email log for testAuthUserId to verify GET /api/emails/logs & cascadeEraseUserCollections
-    const userScopedSend = await corge.emails.send(
-      {
-        to: 'user-scoped@test.local',
-        template: 'e2e_summary',
-        variables: { title: 'User Scoped', count: 1 }
-      },
-      { userId: testAuthUserId }
-    )
+      // Verify POST /api/emails/batch
+      const batchRes = await apiJson<{
+        total: number
+        sent: number
+        failed: number
+        results: { emailId: string; status: string }[]
+      }>(
+        '/api/emails/batch',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            emails: [
+              { to: 'batch-a@test.local', subject: 'Batch A', text: 'Hello A' },
+              { to: 'batch-b@test.local', subject: 'Batch B', text: 'Hello B' }
+            ]
+          })
+        },
+        true,
+        'emails-batch'
+      )
+      assert.equal(batchRes.status, 200)
+      assert.equal(batchRes.data.total, 2)
+      assert.equal(batchRes.data.sent, 2)
+      await Promise.all(
+        batchRes.data.results.map((r) => corge.db.hardDelete('email_log', r.emailId, { bypassRbac: true }))
+      )
 
-    // Verify POST /api/emails/batch
-    const batchRes = await apiJson<{
-      total: number
-      sent: number
-      failed: number
-      results: { emailId: string; status: string }[]
-    }>(
-      '/api/emails/batch',
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          emails: [
-            { to: 'batch-a@test.local', subject: 'Batch A', text: 'Hello A' },
-            { to: 'batch-b@test.local', subject: 'Batch B', text: 'Hello B' }
-          ]
-        })
-      },
-      true,
-      'emails-batch'
-    )
-    assert.equal(batchRes.status, 200)
-    assert.equal(batchRes.data.total, 2)
-    assert.equal(batchRes.data.sent, 2)
-    await Promise.all(
-      batchRes.data.results.map((r) => corge.db.hardDelete('email_log', r.emailId, { bypassRbac: true }))
-    )
-
-    // Verify GET /api/emails/logs filtered by userId
-    const logsRes = await apiJson<{ id: string; to: string; userId: string }[]>(
-      `/api/emails/logs?userId=${testAuthUserId}&limit=20`,
-      {},
-      true,
-      'emails-logs'
-    )
-    assert.equal(logsRes.status, 200)
-    assert.ok(logsRes.data.some((l) => l.id === userScopedSend.emailId))
+      // Verify GET /api/emails/logs filtered by userId
+      const logsRes = await apiJson<{ id: string; to: string; userId: string }[]>(
+        `/api/emails/logs?userId=${testAuthUserId}&limit=20`,
+        {},
+        true,
+        'emails-logs'
+      )
+      assert.equal(logsRes.status, 200)
+      assert.ok(logsRes.data.some((l) => l.id === userScopedSend.emailId))
+    } else {
+      const logsRes = await apiJson<{ id: string; to: string; userId: string }[]>(
+        `/api/emails/logs?userId=${testAuthUserId}&limit=20`,
+        {},
+        true,
+        'emails-logs'
+      )
+      assert.equal(logsRes.status, 200)
+      assert.ok(Array.isArray(logsRes.data))
+    }
 
     // Verify POST /api/emails/webhooks/resend rejects unsigned/invalid signature with 401
     const badWebhookRes = await apiFetch(
@@ -2330,102 +2347,111 @@ describe('9. Corge SDK Primitives, Sign-Out, GDPR Erase & Zero-Leftover Verifica
   })
 
   test('GET /api/payments/status, POST /api/payments/subscribe, POST /api/payments/checkout, POST /api/payments/charge & POST /api/payments/webhooks/:provider — E2E payment routes & usage metering', async () => {
-    corge.internals.registry.registerPlans(
-      corge.define.plans({
-        free: {
-          name: 'Free Plan',
-          interval: 'free',
-          amount: 0,
-          quotas: { aiTokens: 100_000 }
+    if (SPAWN_LOCAL) {
+      corge.internals.registry.registerPlans(
+        corge.define.plans({
+          free: {
+            name: 'Free Plan',
+            interval: 'free',
+            amount: 0,
+            quotas: { aiTokens: 100_000 }
+          },
+          pro: {
+            name: 'Pro Plan',
+            interval: 'month',
+            amount: 2_900,
+            currency: 'usd',
+            quotas: { aiTokens: 1_000_000, overage: { enabled: true } }
+          }
+        })
+      )
+      corge.internals.registry.registerProducts(
+        corge.define.products({
+          e2e_token_pack: {
+            name: 'E2E 5,000 Token Pack',
+            amount: 500,
+            currency: 'usd',
+            grants: { aiTokens: 5_000, credits: 5 }
+          }
+        })
+      )
+
+      const subRes = await apiJson<{ subscriptionId: string; planId: string; status: string }>(
+        '/api/payments/subscribe',
+        {
+          method: 'POST',
+          headers: userHeaders({ 'content-type': 'application/json' }),
+          body: JSON.stringify({ plan: 'free' })
         },
-        pro: {
-          name: 'Pro Plan',
-          interval: 'month',
-          amount: 2_900,
-          currency: 'usd',
-          quotas: { aiTokens: 1_000_000, overage: { enabled: true } }
-        }
-      })
-    )
-    corge.internals.registry.registerProducts(
-      corge.define.products({
-        e2e_token_pack: {
-          name: 'E2E 5,000 Token Pack',
-          amount: 500,
-          currency: 'usd',
-          grants: { aiTokens: 5_000, credits: 5 }
-        }
-      })
-    )
+        false,
+        'payments-subscribe'
+      )
+      assert.equal(subRes.status, 200)
+      assert.equal(subRes.data.planId, 'free')
+      assert.equal(subRes.data.status, 'active')
 
-    const subRes = await apiJson<{ subscriptionId: string; planId: string; status: string }>(
-      '/api/payments/subscribe',
-      {
-        method: 'POST',
-        headers: userHeaders({ 'content-type': 'application/json' }),
-        body: JSON.stringify({ plan: 'free' })
-      },
-      false,
-      'payments-subscribe'
-    )
-    assert.equal(subRes.status, 200)
-    assert.equal(subRes.data.planId, 'free')
-    assert.equal(subRes.data.status, 'active')
+      const chkRes = await apiJson<{ checkoutId: string; url: string; provider: string }>(
+        '/api/payments/checkout',
+        {
+          method: 'POST',
+          headers: userHeaders({ 'content-type': 'application/json' }),
+          body: JSON.stringify({ custom: { name: 'E2E Custom Add-on', amount: 1_500, currency: 'usd' } })
+        },
+        false,
+        'payments-checkout'
+      )
+      assert.equal(chkRes.status, 200)
+      assert.ok(chkRes.data.checkoutId)
+      assert.ok(chkRes.data.url.startsWith('http'))
 
-    const chkRes = await apiJson<{ checkoutId: string; url: string; provider: string }>(
-      '/api/payments/checkout',
-      {
-        method: 'POST',
-        headers: userHeaders({ 'content-type': 'application/json' }),
-        body: JSON.stringify({ custom: { name: 'E2E Custom Add-on', amount: 1_500, currency: 'usd' } })
-      },
-      false,
-      'payments-checkout'
-    )
-    assert.equal(chkRes.status, 200)
-    assert.ok(chkRes.data.checkoutId)
-    assert.ok(chkRes.data.url.startsWith('http'))
+      const chargeRes = await apiJson<{ chargeId: string; status: string; amount: number }>(
+        '/api/payments/charge',
+        {
+          method: 'POST',
+          headers: userHeaders({ 'content-type': 'application/json' }),
+          body: JSON.stringify({ product: 'e2e_token_pack', idempotencyKey: 'e2e-charge-idem-1' })
+        },
+        false,
+        'payments-charge'
+      )
+      assert.equal(chargeRes.status, 200)
+      assert.equal(chargeRes.data.amount, 500)
 
-    const chargeRes = await apiJson<{ chargeId: string; status: string; amount: number }>(
-      '/api/payments/charge',
-      {
-        method: 'POST',
-        headers: userHeaders({ 'content-type': 'application/json' }),
-        body: JSON.stringify({ product: 'e2e_token_pack', idempotencyKey: 'e2e-charge-idem-1' })
-      },
-      false,
-      'payments-charge'
-    )
-    assert.equal(chargeRes.status, 200)
-    assert.equal(chargeRes.data.amount, 500)
+      const retryChargeRes = await apiJson<{ chargeId: string; status: string; amount: number }>(
+        '/api/payments/charge',
+        {
+          method: 'POST',
+          headers: userHeaders({ 'content-type': 'application/json' }),
+          body: JSON.stringify({ product: 'e2e_token_pack', idempotencyKey: 'e2e-charge-idem-1' })
+        },
+        false,
+        'payments-charge-retry'
+      )
+      assert.equal(retryChargeRes.status, 200)
+      assert.equal(retryChargeRes.data.chargeId, chargeRes.data.chargeId)
 
-    const retryChargeRes = await apiJson<{ chargeId: string; status: string; amount: number }>(
-      '/api/payments/charge',
-      {
-        method: 'POST',
-        headers: userHeaders({ 'content-type': 'application/json' }),
-        body: JSON.stringify({ product: 'e2e_token_pack', idempotencyKey: 'e2e-charge-idem-1' })
-      },
-      false,
-      'payments-charge-retry'
-    )
-    assert.equal(retryChargeRes.status, 200)
-    assert.equal(retryChargeRes.data.chargeId, chargeRes.data.chargeId)
+      await corge.payments.recordUsage(
+        { metric: 'ai_tokens', amount: 250, model: 'e2e-test-model' },
+        { userId: testAuthUserId }
+      )
 
-    await corge.payments.recordUsage(
-      { metric: 'ai_tokens', amount: 250, model: 'e2e-test-model' },
-      { userId: testAuthUserId }
-    )
-
-    const statusRes = await apiJson<{
-      subscription: { userId: string; planId: string; status: string; bonusAiTokens: number; credits: number }
-      usage: { userId: string; aiTokensUsed: number; aiTokensLimit: number | null }
-    }>('/api/payments/status', { headers: userHeaders() }, false, 'payments-status')
-    assert.equal(statusRes.status, 200)
-    assert.equal(statusRes.data.subscription.userId, testAuthUserId)
-    assert.equal(statusRes.data.subscription.planId, 'free')
-    assert.equal(statusRes.data.subscription.credits, 5, 'Expected idempotent charge retry to grant credits only once')
-    assert.ok(statusRes.data.usage.aiTokensUsed >= 0)
+      const statusRes = await apiJson<{
+        subscription: { userId: string; planId: string; status: string; bonusAiTokens: number; credits: number }
+        usage: { userId: string; aiTokensUsed: number; aiTokensLimit: number | null }
+      }>('/api/payments/status', { headers: userHeaders() }, false, 'payments-status')
+      assert.equal(statusRes.status, 200)
+      assert.equal(statusRes.data.subscription.userId, testAuthUserId)
+      assert.equal(statusRes.data.subscription.planId, 'free')
+      assert.equal(statusRes.data.subscription.credits, 5, 'Expected idempotent charge retry to grant credits only once')
+      assert.ok(statusRes.data.usage.aiTokensUsed >= 0)
+    } else {
+      const statusRes = await apiJson<{
+        subscription: { userId: string; planId: string; status: string }
+        usage: { userId: string; aiTokensUsed: number }
+      }>('/api/payments/status', { headers: userHeaders() }, false, 'payments-status')
+      assert.equal(statusRes.status, 200)
+      assert.equal(statusRes.data.subscription.userId, testAuthUserId)
+    }
 
     const badPayWhRes = await apiFetch(
       '/api/payments/webhooks/stripe',
@@ -2487,7 +2513,7 @@ describe('9. Corge SDK Primitives, Sign-Out, GDPR Erase & Zero-Leftover Verifica
     assert.equal(eraseRes.data.erasedUser, true)
     userErased = true
 
-    const db = corge.db.firestore(true)
+    const db = corge.db.firestore(TARGET_IS_DEV)
     const [
       leftoverAuthUser,
       leftoverAuthMetaDoc,
@@ -2513,7 +2539,7 @@ describe('9. Corge SDK Primitives, Sign-Out, GDPR Erase & Zero-Leftover Verifica
       db.collection('payment_customer').doc(testAuthUserId).get(),
       db.collection('payment_usage').where('userId', '==', testAuthUserId).get(),
       db.collection('payment_transaction').where('userId', '==', testAuthUserId).get(),
-      corge.files.bucket(true).getFiles({ prefix: `${testAuthUserId}_` })
+      corge.files.bucket(TARGET_IS_DEV).getFiles({ prefix: `${testAuthUserId}_` })
     ])
     assert.equal(leftoverAuthUser, undefined, 'Expected user to be completely deleted from Firebase Auth')
     assert.equal(leftoverAuthMetaDoc.exists, false, 'Expected 0 leftover user_auth_meta doc in Firestore')

@@ -26,6 +26,7 @@ const batchQueue: BatchItem[] = []
 let flushScheduled = false
 let nextShard = 0
 let activeWatcherCount = 0
+let shardsUnavailable = false
 
 export class TaskWatcherEngine {
   readonly #corge: Corge
@@ -39,66 +40,74 @@ export class TaskWatcherEngine {
   getActiveWatcherCount = (): number => activeWatcherCount
 
   #sendBatch = async (queueParent: string, chunk: BatchItem[]): Promise<void> => {
-    await this.#corge.internals.resilience.acquireLimit('workflows', chunk.length)
-    const accessToken = await this.#corge.internals.registry.getGcpAccessToken()
-    const isDev = Boolean(chunk[0]?.payload.isDev)
-    const queueBase = getQueueBase(isDev)
-    const shardsCount = Math.max(1, CORGE_CONFIG.tasks.defaultShardsCount)
-    const headers = {
-      authorization: `Bearer ${accessToken}`,
-      'content-type': 'application/json',
-      'x-goog-user-project': CORGE_CONFIG.gcpProject
-    }
-    const buildRequests = (parent: string) =>
-      chunk.map((i) => {
-        const workerUri = getWorkerUri(i.payload.isDev)
-        return {
-          parent,
-          task: {
-            dispatchDeadline: `${i.deadline}s`,
-            ...(i.scheduleDelaySeconds && i.scheduleDelaySeconds > 0
-              ? { scheduleTime: new Date(Date.now() + Math.round(i.scheduleDelaySeconds * 1000)).toISOString() }
-              : {}),
-            httpRequest: {
-              url: workerUri,
-              httpMethod: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: Buffer.from(JSON.stringify({ data: i.payload })).toString('base64'),
-              oidcToken: { serviceAccountEmail: CORGE_CONFIG.serviceAccount, audience: workerUri }
+    try {
+      await this.#corge.internals.resilience.acquireLimit('workflows', chunk.length)
+      const accessToken = await this.#corge.internals.registry.getGcpAccessToken()
+      const isDev = Boolean(chunk[0]?.payload.isDev)
+      const queueBase = getQueueBase(isDev)
+      const headers = {
+        authorization: `Bearer ${accessToken}`,
+        'content-type': 'application/json',
+        'x-goog-user-project': CORGE_CONFIG.gcpProject
+      }
+      const buildRequests = (parent: string) =>
+        chunk.map((i) => {
+          const workerUri = getWorkerUri(i.payload.isDev)
+          return {
+            parent,
+            task: {
+              dispatchDeadline: `${i.deadline}s`,
+              ...(i.scheduleDelaySeconds && i.scheduleDelaySeconds > 0
+                ? { scheduleTime: new Date(Date.now() + Math.round(i.scheduleDelaySeconds * 1000)).toISOString() }
+                : {}),
+              httpRequest: {
+                url: workerUri,
+                httpMethod: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: Buffer.from(JSON.stringify({ data: i.payload })).toString('base64'),
+                oidcToken: { serviceAccountEmail: CORGE_CONFIG.serviceAccount, audience: workerUri }
+              }
             }
           }
-        }
-      })
-
-    let targetParent = queueParent
-    let lastErr: Error | null = null
-    for (let a = 0; a < 3; a++) {
-      try {
-        const res = await fetch(`https://cloudtasks.googleapis.com/v2/${targetParent}/tasks:batchCreate`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({ requests: buildRequests(targetParent) })
         })
-        if (res.status === 404 && targetParent !== queueBase) {
-          const createRes = await fetch(`https://cloudtasks.googleapis.com/v2/${getQueueLoc()}/queues`, {
+
+      let targetParent = shardsUnavailable ? queueBase : queueParent
+      let lastErr: Error | null = null
+      for (let a = 0; a < 3; a++) {
+        try {
+          const res = await fetch(`https://cloudtasks.googleapis.com/v2/${targetParent}/tasks:batchCreate`, {
             method: 'POST',
             headers,
-            body: JSON.stringify({
-              name: targetParent,
-              rateLimits: { maxDispatchesPerSecond: 500, maxConcurrentDispatches: 1000 }
-            })
-          }).catch(() => null)
-          if (!createRes?.ok) targetParent = getQueueParent(nextShard++ % shardsCount, isDev)
-          continue
+            body: JSON.stringify({ requests: buildRequests(targetParent) })
+          })
+          if (res.status === 404 && targetParent !== queueBase) {
+            const createRes = await fetch(`https://cloudtasks.googleapis.com/v2/${getQueueLoc()}/queues`, {
+              method: 'POST',
+              headers,
+              body: JSON.stringify({
+                name: targetParent,
+                rateLimits: { maxDispatchesPerSecond: 500, maxConcurrentDispatches: 1000 }
+              })
+            }).catch(() => null)
+            if (!createRes?.ok) {
+              shardsUnavailable = true
+              targetParent = queueBase
+            }
+            continue
+          }
+          if (!res.ok) throw new Error(`Cloud Tasks batchCreate (${res.status}): ${await res.text()}`)
+          return chunk.forEach((i) => i.resolve())
+        } catch (e) {
+          lastErr = e instanceof Error ? e : new Error(String(e))
+          if (a < 2) await new Promise((r) => setTimeout(r, 300 * (a + 1)))
         }
-        if (!res.ok) throw new Error(`Cloud Tasks batchCreate (${res.status}): ${await res.text()}`)
-        return chunk.forEach((i) => i.resolve())
-      } catch (e) {
-        lastErr = e instanceof Error ? e : new Error(String(e))
-        if (a < 2) await new Promise((r) => setTimeout(r, 300 * (a + 1)))
       }
+      const finalErr = lastErr ?? new Error(`Cloud Tasks batchCreate failed for queue ${targetParent}`)
+      chunk.forEach((i) => i.reject(finalErr))
+    } catch (outerErr) {
+      const err = outerErr instanceof Error ? outerErr : new Error(String(outerErr))
+      chunk.forEach((i) => i.reject(err))
     }
-    chunk.forEach((i) => i.reject(lastErr!))
   }
 
   enqueueBatched = (

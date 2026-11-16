@@ -10,7 +10,7 @@ export const runTypeCheck = (cwd = process.cwd()): void => {
   process.exitCode = res.status ?? 1
 }
 
-export const runTestSuite = async (cwd = process.cwd()): Promise<void> => {
+export const runTestSuite = async (baseUrl?: string, cwd = process.cwd()): Promise<void> => {
   await loadGcpSecrets(undefined, cwd)
   const corgeRoot = getCorgeRootDir()
   const outDir = join(cwd, '.corge')
@@ -35,7 +35,7 @@ export const runTestSuite = async (cwd = process.cwd()): Promise<void> => {
 
   const res = spawnSync(process.execPath, ['--test', outFile], {
     cwd,
-    env: process.env,
+    env: { ...process.env, ...(baseUrl ? { BASE_URL: baseUrl } : {}) },
     stdio: 'inherit'
   })
   process.exitCode = res.status ?? 1

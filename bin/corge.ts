@@ -17,7 +17,7 @@ switch (command) {
     await deployConsumerApp(rest[0] as 'prod' | 'dev' | undefined)
     break
   case 'test':
-    await runTestSuite()
+    await runTestSuite(rest[0])
     break
   case 'check':
     runTypeCheck()
