@@ -387,21 +387,14 @@ export const buildCompletedTurnWriteBatch = (
     ...(opts.assistantVector ? { embedding: FieldValue.vector(opts.assistantVector) } : {})
   })
 
-  batch.set(
-    opts.chatDocRef,
-    {
-      id: opts.chatId,
-      userId: opts.userId,
-      agentId: opts.resolvedAgentId,
-      title: opts.title,
-      model: opts.selectedModel,
-      deleted: false,
-      activeGenerationId: null,
-      messageCount: FieldValue.increment(2),
-      ...(opts.stagedRefs.length > 0 ? { attachmentRefs: FieldValue.arrayUnion(...opts.stagedRefs) } : {}),
-      updatedAt: FieldValue.serverTimestamp()
-    },
-    { merge: true }
-  )
+  batch.update(opts.chatDocRef, {
+    title: opts.title,
+    model: opts.selectedModel,
+    deleted: false,
+    activeGenerationId: null,
+    messageCount: FieldValue.increment(2),
+    ...(opts.stagedRefs.length > 0 ? { attachmentRefs: FieldValue.arrayUnion(...opts.stagedRefs) } : {}),
+    updatedAt: FieldValue.serverTimestamp()
+  })
   return batch
 }

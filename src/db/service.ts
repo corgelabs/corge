@@ -366,7 +366,10 @@ export class DbService {
     const effective = this.#effectiveCtx(ctx)
     const existing =
       def.onHardDelete || !effective.bypassRbac
-        ? await this.read(collection, id, true, { bypassRbac: true })
+        ? await this.read(collection, id, true, { bypassRbac: true }).catch((err) => {
+            if (!effective.bypassRbac) throw err
+            return undefined
+          })
         : undefined
     if (!effective.bypassRbac) {
       if (!existing) throw new Error(`Not found: ${collection}/${id}`)
@@ -375,7 +378,7 @@ export class DbService {
     }
     await this.#corge.internals.resilience.acquireLimit('firestore')
     await this.firestore().collection(collection).doc(id).delete()
-    if (def.onHardDelete && (existing || collection === 'chat')) {
+    if (def.onHardDelete && (existing || collection === 'chat' || collection === 'file')) {
       const scopedCore =
         effective.corge ??
         new Corge({
@@ -390,13 +393,26 @@ export class DbService {
   }
 
   #eraseOwnedEntries = async (name: string, userId: EntryId): Promise<number> => {
+    const def = getCollectionDef(name)
+    const db = this.firestore()
+    if ((def.userRelation?.type ?? '1:N') === '1:1' && (def.userRelation?.userField ?? 'id') === 'id') {
+      const snap = await db.collection(name).doc(userId).get()
+      if (!snap.exists) return 0
+      await this.hardDelete(name, userId, { bypassRbac: true }).catch(() => db.collection(name).doc(userId).delete())
+      return 1
+    }
     let total = 0
+    const baseQuery = buildScopedCollectionQuery(db.collection(name), name, userId, undefined, undefined).select()
     while (true) {
-      const docs = await this.list(name, { userId, includeDeleted: true, limit: 500, bypassRbac: true })
-      if (!docs.length) break
-      await runChunked(docs, (d) => this.hardDelete(name, d.id, { bypassRbac: true }).catch(() => {}), 25)
-      total += docs.length
-      if (docs.length < 500) break
+      const snap = await baseQuery.limit(500).get()
+      if (snap.empty) break
+      await runChunked(
+        snap.docs,
+        (d) => this.hardDelete(name, d.id, { bypassRbac: true }).catch(() => d.ref.delete().catch(() => {})),
+        25
+      )
+      total += snap.size
+      if (snap.size < 500) break
     }
     return total
   }

@@ -46,6 +46,12 @@ export const fromFirestoreDoc = <T extends CollectionName>(
   partial = false
 ): SelectModel<T> => {
   const norm = normalizeDates({ ...raw, id }) as Record<string, unknown>
+  if (!partial) {
+    const fallback =
+      norm.updatedAt instanceof Date ? norm.updatedAt : norm.createdAt instanceof Date ? norm.createdAt : new Date(0)
+    if (norm.createdAt === undefined) norm.createdAt = fallback
+    if (norm.updatedAt === undefined) norm.updatedAt = fallback
+  }
   const schema = getCollectionDef(c).schema
   return (partial ? schema.partial().parse(norm) : schema.parse(norm)) as SelectModel<T>
 }
