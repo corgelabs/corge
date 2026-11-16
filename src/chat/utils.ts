@@ -193,7 +193,7 @@ export const PUBLIC_MESSAGE_FIELDS = [
   'createdAt'
 ] as const
 
-export const RECALL_MESSAGE_FIELDS = ['id', 'chatId', 'role', 'content'] as const
+export const RECALL_MESSAGE_FIELDS = ['id', 'chatId', 'role', 'content', 'attachments'] as const
 
 export const mapFirestoreMessageDoc = (
   id: string,
@@ -229,8 +229,15 @@ export const mapFirestoreMessageDoc = (
   }
 }
 
-export const toModelMessageFromDoc = (doc: ChatMessagePublic): ModelMessage | undefined => {
-  const text = doc.content.trim()
+export const toModelMessageFromDoc = (
+  doc: ChatMessagePublic,
+  attachmentSummaries?: ReadonlyMap<string, string>
+): ModelMessage | undefined => {
+  const attLines =
+    doc.role === 'user' && doc.attachments?.length && attachmentSummaries
+      ? doc.attachments.map((r) => attachmentSummaries.get(r)).filter((s): s is string => Boolean(s))
+      : []
+  const text = [doc.content.trim(), ...attLines].filter(Boolean).join('\n\n')
   if (!text) return undefined
   if (doc.role === 'assistant') {
     return { role: 'assistant', content: [{ type: 'text', text }] }
@@ -241,17 +248,30 @@ export const toModelMessageFromDoc = (doc: ChatMessagePublic): ModelMessage | un
   return undefined
 }
 
-export const extractToolInvocations = (messages: readonly { content: unknown }[]): unknown[] => {
+const sanitizeFirestoreJson = <T>(val: T): T => JSON.parse(JSON.stringify(val)) as T
+
+export const extractToolInvocations = (
+  messages: readonly { content: unknown }[],
+  steps?: readonly { toolCalls?: readonly unknown[]; toolResults?: readonly unknown[] }[]
+): unknown[] => {
   const toolInvocations: unknown[] = []
-  for (const m of messages) {
-    if (!Array.isArray(m.content)) continue
-    for (const part of m.content) {
-      if (part && typeof part === 'object' && 'type' in part && (part.type === 'tool-call' || part.type === 'tool-result')) {
-        toolInvocations.push(part)
+  if (steps?.length) {
+    for (const s of steps) {
+      for (const tc of s.toolCalls ?? []) toolInvocations.push(tc)
+      for (const tr of s.toolResults ?? []) toolInvocations.push(tr)
+    }
+  }
+  if (toolInvocations.length === 0) {
+    for (const m of messages) {
+      if (!Array.isArray(m.content)) continue
+      for (const part of m.content) {
+        if (part && typeof part === 'object' && 'type' in part && (part.type === 'tool-call' || part.type === 'tool-result')) {
+          toolInvocations.push(part)
+        }
       }
     }
   }
-  return toolInvocations
+  return toolInvocations.length > 0 ? sanitizeFirestoreJson(toolInvocations) : []
 }
 
 export const buildUIMessageResponse = (
@@ -362,6 +382,7 @@ export const buildCompletedTurnWriteBatch = (
       deleted: false,
       activeGenerationId: null,
       messageCount: FieldValue.increment(2),
+      ...(opts.stagedRefs.length > 0 ? { attachmentRefs: FieldValue.arrayUnion(...opts.stagedRefs) } : {}),
       updatedAt: FieldValue.serverTimestamp()
     },
     { merge: true }

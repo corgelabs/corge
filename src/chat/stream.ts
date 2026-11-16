@@ -238,10 +238,15 @@ export class ChatStreamEngine {
     const toolInvocations: unknown[] = []
     try {
       try {
-        const [text, response, usage] = await Promise.all([opts.turn.text, opts.turn.response, opts.turn.usage])
+        const [text, steps, response, usage] = await Promise.all([
+          opts.turn.text,
+          opts.turn.steps,
+          opts.turn.response,
+          opts.turn.usage
+        ])
         assistantText = text || opts.getAccumulatedText()
         totalTokens = usage?.totalTokens ?? ((usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0) || undefined)
-        toolInvocations.push(...extractToolInvocations(response.messages))
+        toolInvocations.push(...extractToolInvocations(response.messages, steps))
       } catch {
         assistantText = opts.getAccumulatedText()
       }
@@ -326,17 +331,20 @@ export class ChatStreamEngine {
     signal: AbortSignal
     chatId?: string
     messageCount?: number
+    chatAttachmentRefs?: readonly FileRef[]
     selectedModel?: string
     priorMessages?: ModelMessage[]
   }) => {
-    const { userId, role, agent, attachmentParts, rawUserText, signal, chatId, messageCount, selectedModel, priorMessages } =
-      opts
+    const {
+      userId, role, agent, attachmentParts, rawUserText, signal, chatId, messageCount, chatAttachmentRefs, selectedModel, priorMessages
+    } = opts
     const [{ staged, attachments }, hybrid] = await Promise.all([
       this.stageAndScanAttachments(userId, attachmentParts, agent.attachmentTypes ?? {}),
       this.#corge.chat.retrieveContext({
         userId,
         ...(chatId ? { chatId } : {}),
         ...(messageCount !== undefined ? { messageCount } : {}),
+        ...(chatAttachmentRefs?.length ? { chatAttachmentRefs } : {}),
         prompt: rawUserText,
         useContext: agent.useContext !== false,
         agent,
@@ -348,6 +356,7 @@ export class ChatStreamEngine {
     const stagedAttachmentSummaries = attachments.map((item, idx) =>
       formatAttachmentLine(staged[idx]?.filename ?? 'file', item).trim()
     )
+    const allDynamicAttachments = [...(hybrid.historicalAttachmentSummaries ?? []), ...stagedAttachmentSummaries]
     const userCreatedAtMs = Date.now()
     const messagesForTurn = priorMessages
       ? [
@@ -373,7 +382,7 @@ export class ChatStreamEngine {
         currentTimeIso: new Date(userCreatedAtMs).toISOString(),
         recalledMemories: hybrid.recalledMemories,
         infobaseContextEntries: hybrid.infobaseContextEntries,
-        stagedAttachmentSummaries,
+        stagedAttachmentSummaries: allDynamicAttachments,
         userContext: hybrid.userContext
       }
     })
@@ -434,6 +443,7 @@ export class ChatStreamEngine {
         role,
         chatId,
         messageCount: existing?.messageCount ?? 0,
+        ...(existing?.attachmentRefs?.length ? { chatAttachmentRefs: existing.attachmentRefs } : {}),
         agent,
         selectedModel,
         attachmentParts,
@@ -441,7 +451,8 @@ export class ChatStreamEngine {
         signal: generationController.signal
       })
 
-      const finalUserText = rawUserText || stagedAttachmentSummaries.join('\n')
+      const finalUserText = rawUserText || 'Attached files.'
+      const embedUserText = [rawUserText, ...stagedAttachmentSummaries].filter(Boolean).join('\n\n').slice(0, 8_000)
       const msgCol = chatDocRef.collection('messages')
       const userMsgId = body.message.id && entryId.safeParse(body.message.id).success ? body.message.id : msgCol.doc().id
       const userPartsForStorage = body.message.parts?.length ? body.message.parts : [{ type: 'text', text: rawUserText }]
@@ -449,7 +460,7 @@ export class ChatStreamEngine {
         turn,
         getAccumulatedText: () => accumulatedText,
         signal: generationController.signal,
-        userVecPromise: this.#corge.ai.embed(finalUserText).catch(() => null),
+        userVecPromise: this.#corge.ai.embed(embedUserText).catch(() => null),
         chatDocRef,
         chatId,
         userId,

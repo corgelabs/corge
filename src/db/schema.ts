@@ -139,6 +139,7 @@ export const coreCollections = defineCollections({
       title: z.string().default('New Chat'),
       model: z.string().default(CORGE_CONFIG.models.vertex),
       messageCount: z.number().int().nonnegative().default(0),
+      attachmentRefs: z.array(fileRef).optional(),
       summary: z.string().nullable().optional(),
       activeGenerationId: z.string().nullable().optional()
     }),

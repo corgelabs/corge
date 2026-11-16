@@ -200,6 +200,7 @@ export const coreChatRoutes = {
                   'title',
                   'model',
                   'messageCount',
+                  'attachmentRefs',
                   'summary',
                   'activeGenerationId',
                   'deleted',

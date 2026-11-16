@@ -4,7 +4,7 @@ import type { ModelMessage } from 'ai'
 import { FieldValue, type Query } from 'firebase-admin/firestore'
 import type { JevQuestion } from '../ai'
 import { CORGE_CONFIG, type DbRole } from '../config'
-import type { EntryId } from '../db'
+import { fileScan, fileScanError, type EntryId, type FileRef } from '../db'
 import { Corge } from '../index'
 import type {
   AgentConfig,
@@ -20,6 +20,7 @@ import type {
   VectorValue
 } from './schema'
 import {
+  formatAttachmentLine,
   isContextItemVisible,
   isUserContextShape,
   mapFirestoreMessageDoc,
@@ -88,7 +89,10 @@ export class ChatContextEngine {
 
     const maxSources = options?.maxSources ?? CORGE_CONFIG.context.maxSources
     const userState = options?.userState
-    const stateHint = userState ? ' Use the provided userState when judging relevance.' : ''
+    const recentConversation = options?.recentConversation?.trim()
+    const stateHint =
+      (userState ? ' Use the provided userState when judging relevance.' : '') +
+      (recentConversation ? ' Consider recentConversation for follow-up topic continuity.' : '')
     const questions: Record<string, JevQuestion> = {}
     validItems.forEach((item, idx) => {
       questions[`doc_${idx}`] = {
@@ -103,7 +107,11 @@ export class ChatContextEngine {
 
     try {
       const decision = await this.#corge.ai.decide(
-        { prompt: trimmed, ...(userState ? { userState } : {}) },
+        {
+          prompt: trimmed,
+          ...(recentConversation ? { recentConversation } : {}),
+          ...(userState ? { userState } : {})
+        },
         questions
       )
       const scored = validItems
@@ -186,12 +194,14 @@ export class ChatContextEngine {
         .map((d) => {
           const data = d.data()
           const content = typeof data.content === 'string' ? data.content.trim() : ''
-          if (!content) return undefined
+          const attachments = Array.isArray(data.attachments) ? (data.attachments as FileRef[]) : undefined
+          if (!content && !attachments?.length) return undefined
           return {
             id: d.id,
             chatId: typeof data.chatId === 'string' ? data.chatId : fallbackChatId,
             role: (data.role === 'assistant' ? 'assistant' : 'user') as ChatMessageRole,
             content,
+            ...(attachments?.length ? { attachments } : {}),
             scope
           }
         })
@@ -237,11 +247,38 @@ export class ChatContextEngine {
     return [...inChat, ...crossChat]
   }
 
+  #hydrateAttachmentSummaries = async (refs: readonly string[]): Promise<Map<string, string>> => {
+    const unique = [...new Set(refs.filter(Boolean))].slice(-CORGE_CONFIG.limits.maxChatAttachments)
+    const out = new Map<string, string>()
+    if (unique.length === 0) return out
+    try {
+      await this.#corge.internals.resilience.acquireLimit('firestore')
+      const db = this.#corge.db.firestore()
+      const snaps = await db.getAll(...unique.map((r) => db.collection('file').doc(r)))
+      for (const snap of snaps) {
+        if (!snap.exists) continue
+        const raw = snap.data() ?? {}
+        const filename = typeof raw.fileName === 'string' && raw.fileName ? raw.fileName : snap.id
+        const parsedScan = raw.scan ? fileScan.safeParse(raw.scan) : undefined
+        if (parsedScan?.success) {
+          out.set(snap.id, formatAttachmentLine(filename, { ref: snap.id, scan: parsedScan.data }).trim())
+          continue
+        }
+        const parsedErr = raw.scanError ? fileScanError.safeParse(raw.scanError) : undefined
+        if (parsedErr?.success) {
+          out.set(snap.id, formatAttachmentLine(filename, { ref: snap.id, error: parsedErr.data.agentHint }).trim())
+        }
+      }
+    } catch {}
+    return out
+  }
+
   retrieveContext = async (opts: HybridRetrievalOptions): Promise<HybridRetrievalResult> => {
     const {
       userId = this.#corge.userId,
       chatId,
       messageCount = 0,
+      chatAttachmentRefs,
       prompt,
       useContext = true,
       slidingWindowSize = CORGE_CONFIG.limits.chatMessagesLimit,
@@ -275,12 +312,18 @@ export class ChatContextEngine {
 
     const infobasePromise =
       useContext !== false && prompt.trim()
-        ? userContextPromise.then((userContext) =>
-            this.getContext(prompt, undefined, {
+        ? Promise.all([userContextPromise, slidingWindowPromise]).then(([userContext, windowDocs]) => {
+            const recentConversation = windowDocs
+              .slice(-4)
+              .map((m) => `${m.role}: ${m.content.slice(0, 350)}`)
+              .join('\n')
+              .slice(0, 1_500)
+            return this.getContext(prompt, undefined, {
               ...(agent?.contextAudiences ? { audiences: agent.contextAudiences } : {}),
-              ...(userContext ? { userState: userContext.state } : {})
+              ...(userContext ? { userState: userContext.state } : {}),
+              ...(recentConversation ? { recentConversation } : {})
             })
-          )
+          })
         : Promise.resolve([] as ContextEntry[])
 
     const [slidingWindowDocs, rawRecalled, infobaseContextEntries, userContext] = await Promise.all([
@@ -299,8 +342,30 @@ export class ChatContextEngine {
       recalledMemories.push(mem)
     }
 
+    const windowRefs = slidingWindowDocs.flatMap((d) => d.attachments ?? [])
+    const recallRefs = recalledMemories.flatMap((m) => m.attachments ?? [])
+    const threadRefs = chatAttachmentRefs ?? []
+    const attachmentMap = await this.#hydrateAttachmentSummaries([...threadRefs, ...windowRefs, ...recallRefs])
+
+    const inlinedRefs = new Set<string>()
+    for (const r of windowRefs) if (attachmentMap.has(r)) inlinedRefs.add(r)
+    for (const mem of recalledMemories) {
+      const attLines = (mem.attachments ?? [])
+        .map((r) => {
+          const line = attachmentMap.get(r)
+          if (line) inlinedRefs.add(r)
+          return line
+        })
+        .filter((s): s is string => Boolean(s))
+      if (attLines.length > 0) mem.content = [mem.content, ...attLines].filter(Boolean).join('\n\n')
+    }
+
+    const historicalAttachmentSummaries = threadRefs
+      .filter((r) => !inlinedRefs.has(r) && attachmentMap.has(r))
+      .map((r) => attachmentMap.get(r)!)
+
     const slidingWindowMessages = slidingWindowDocs
-      .map(toModelMessageFromDoc)
+      .map((d) => toModelMessageFromDoc(d, attachmentMap))
       .filter((m): m is ModelMessage => Boolean(m))
 
     return {
@@ -308,6 +373,7 @@ export class ChatContextEngine {
       slidingWindowMessages,
       recalledMemories,
       infobaseContextEntries,
+      ...(historicalAttachmentSummaries.length > 0 ? { historicalAttachmentSummaries } : {}),
       ...(userContext ? { userContext } : {})
     }
   }

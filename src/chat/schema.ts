@@ -63,6 +63,7 @@ export interface ChatMetadataDoc {
   title: string
   model: string
   messageCount: number
+  attachmentRefs?: FileRef[]
   summary?: string | null
   activeGenerationId?: string | null
   deleted: boolean
@@ -96,6 +97,7 @@ export interface RecalledMemorySnippet {
   chatId: string
   role: ChatMessageRole
   content: string
+  attachments?: FileRef[]
   scope: 'in_chat' | 'cross_chat'
 }
 
@@ -120,6 +122,8 @@ export interface GetContextOptions {
   audiences?: readonly string[]
   /** Compact caller state forwarded to the classifier to judge relevance. */
   userState?: Record<string, unknown>
+  /** Compact recent chat turns forwarded to the classifier for follow-up continuity. */
+  recentConversation?: string
 }
 
 export interface DynamicContextBlockInput {
@@ -134,6 +138,7 @@ export interface HybridRetrievalOptions {
   userId?: EntryId
   chatId?: string
   messageCount?: number
+  chatAttachmentRefs?: readonly FileRef[]
   prompt: string
   useContext?: boolean
   slidingWindowSize?: number
@@ -149,6 +154,7 @@ export interface HybridRetrievalResult {
   slidingWindowMessages: ModelMessage[]
   recalledMemories: RecalledMemorySnippet[]
   infobaseContextEntries: ContextEntry[]
+  historicalAttachmentSummaries?: readonly string[]
   userContext?: UserContext
 }
 
