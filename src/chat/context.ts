@@ -47,22 +47,26 @@ export class ChatContextEngine {
   }
 
   #readContextMarkdown = async (relPath: string): Promise<string | undefined> => {
+    if (!relPath.endsWith('.md')) return undefined
     const cached = markdownCache.get(relPath)
     if (cached !== undefined) return cached
 
-    const contextRoot = path.resolve(process.cwd(), CORGE_CONFIG.context.dir)
-    const resolved = path.resolve(contextRoot, relPath)
-    if (!resolved.startsWith(contextRoot + path.sep) || !relPath.endsWith('.md')) {
-      return undefined
+    const roots = [
+      path.resolve(process.cwd(), CORGE_CONFIG.context.dir),
+      path.resolve(process.cwd(), 'dist/context')
+    ]
+
+    for (const contextRoot of roots) {
+      const resolved = path.resolve(contextRoot, relPath)
+      if (!resolved.startsWith(contextRoot + path.sep)) continue
+      try {
+        const content = await readFile(resolved, 'utf8')
+        markdownCache.set(relPath, content)
+        return content
+      } catch {}
     }
 
-    try {
-      const content = await readFile(resolved, 'utf8')
-      markdownCache.set(relPath, content)
-      return content
-    } catch {
-      return undefined
-    }
+    return undefined
   }
 
   getContext = async (

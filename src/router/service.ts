@@ -52,10 +52,16 @@ export class RouterService {
       ...(emailProvider === 'resend' ? ['RESEND_API_KEY', 'EMAIL_WEBHOOK_SECRET'] : []),
       ...(emailProvider === 'sendgrid' ? ['SENDGRID_API_KEY', 'EMAIL_WEBHOOK_SECRET'] : [])
     ]
-    const paymentSecrets: string[] = [
-      ...(paymentProvider === 'stripe' ? ['STRIPE_API_KEY', 'STRIPE_WEBHOOK_SECRET', 'STRIPE_SANDBOX_API_KEY', 'STRIPE_SANDBOX_WEBHOOK_SECRET'] : []),
-      ...(paymentProvider === 'dodo' ? ['DODO_API_KEY', 'DODO_WEBHOOK_SECRET', 'DODO_SANDBOX_API_KEY', 'DODO_SANDBOX_WEBHOOK_SECRET'] : [])
-    ]
+    const paymentSecrets: string[] = CORGE_CONFIG.payments.enabled
+      ? [
+          ...(paymentProvider === 'stripe'
+            ? ['STRIPE_API_KEY', 'STRIPE_WEBHOOK_SECRET', 'STRIPE_SANDBOX_API_KEY', 'STRIPE_SANDBOX_WEBHOOK_SECRET']
+            : []),
+          ...(paymentProvider === 'dodo'
+            ? ['DODO_API_KEY', 'DODO_WEBHOOK_SECRET', 'DODO_SANDBOX_API_KEY', 'DODO_SANDBOX_WEBHOOK_SECRET']
+            : [])
+        ]
+      : []
     const secretNames = [...new Set<string>([...SECRET_NAMES, ...emailSecrets, ...paymentSecrets, ...CORGE_CONFIG.secrets])]
     const sharedOpts = {
       region: CORGE_CONFIG.region,
@@ -92,11 +98,38 @@ export class RouterService {
     })
 
     const fnName = CORGE_CONFIG.gcpProject
-    const functions: Record<string, unknown> = {
-      [fnName]: httpHandler,
-      [`${fnName}-dev`]: devHttpHandler,
-      [`${fnName}-tasks`]: tasksHandler,
-      [`${fnName}-tasks-dev`]: devTasksHandler
+    const entries: readonly (readonly [string, unknown])[] = [
+      [fnName, httpHandler],
+      [`${fnName}-dev`, devHttpHandler],
+      [`${fnName}-tasks`, tasksHandler],
+      [`${fnName}-tasks-dev`, devTasksHandler]
+    ]
+    const functions: Record<string, unknown> = {}
+    for (const [dashedName, handler] of entries) {
+      if (!dashedName) continue
+      functions[dashedName] = handler
+      const parts = dashedName.split('-')
+      if (parts.length > 1) {
+        let cursor: Record<string, unknown> = functions
+        for (let i = 0; i < parts.length - 1; i++) {
+          const seg = parts[i]!
+          const existing = cursor[seg]
+          if (
+            existing === undefined ||
+            existing === null ||
+            (typeof existing !== 'object' && typeof existing !== 'function')
+          ) {
+            cursor[seg] = {}
+          }
+          cursor = cursor[seg] as Record<string, unknown>
+        }
+        const leaf = parts[parts.length - 1]!
+        const prev = cursor[leaf]
+        cursor[leaf] =
+          prev && (typeof prev === 'object' || typeof prev === 'function')
+            ? Object.assign(handler as object, prev)
+            : handler
+      }
     }
 
     return { httpHandler, devHttpHandler, tasksHandler, devTasksHandler, functions }

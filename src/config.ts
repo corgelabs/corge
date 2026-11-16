@@ -261,7 +261,20 @@ export interface CoreConfig {
   payments: PaymentsConfig
 }
 
-const gcpProject = process.env.GCP_PROJECT ?? ''
+const resolveGcpProject = (): string => {
+  if (process.env.GCP_PROJECT) return process.env.GCP_PROJECT
+  if (process.env.GCLOUD_PROJECT) return process.env.GCLOUD_PROJECT
+  if (process.env.GOOGLE_CLOUD_PROJECT) return process.env.GOOGLE_CLOUD_PROJECT
+  if (process.env.FIREBASE_CONFIG) {
+    try {
+      const parsed = JSON.parse(process.env.FIREBASE_CONFIG) as { projectId?: string }
+      if (parsed.projectId) return parsed.projectId
+    } catch {}
+  }
+  return ''
+}
+
+const gcpProject = resolveGcpProject()
 const region = 'me-central1'
 const defaultWebBaseUrl = `https://${gcpProject || 'app'}.web.app`
 

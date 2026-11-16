@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { cpSync, existsSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -77,6 +77,9 @@ export const corgeAliasPlugin = (cwd = process.cwd()): Plugin => ({
 })
 
 export const buildConsumerApp = async (cwd = process.cwd()): Promise<void> => {
+  const distDir = join(cwd, 'dist')
+  rmSync(distDir, { recursive: true, force: true })
+
   await build({
     absWorkingDir: cwd,
     entryPoints: ['src/index.ts'],
@@ -90,4 +93,9 @@ export const buildConsumerApp = async (cwd = process.cwd()): Promise<void> => {
     outfile: 'dist/index.cjs',
     sourcemap: true
   })
+
+  const srcContext = join(cwd, 'src/context')
+  if (existsSync(srcContext)) {
+    cpSync(srcContext, join(distDir, 'context'), { recursive: true })
+  }
 }
