@@ -25,6 +25,7 @@ import {
   extractTurnAttachmentParts,
   formatAttachmentLine,
   mapFirestoreMessageDoc,
+  mergePriorMessagesWithAttachments,
   PUBLIC_MESSAGE_FIELDS
 } from './utils'
 
@@ -345,6 +346,7 @@ export class ChatStreamEngine {
         ...(chatId ? { chatId } : {}),
         ...(messageCount !== undefined ? { messageCount } : {}),
         ...(chatAttachmentRefs?.length ? { chatAttachmentRefs } : {}),
+        ...(priorMessages?.length ? { priorMessages } : {}),
         prompt: rawUserText,
         useContext: agent.useContext !== false,
         agent,
@@ -359,12 +361,12 @@ export class ChatStreamEngine {
     const allDynamicAttachments = [...(hybrid.historicalAttachmentSummaries ?? []), ...stagedAttachmentSummaries]
     const userCreatedAtMs = Date.now()
     const messagesForTurn = priorMessages
-      ? [
-          ...priorMessages,
-          ...(stagedAttachmentSummaries.length > 0
-            ? [{ role: 'user' as const, content: [{ type: 'text' as const, text: stagedAttachmentSummaries.join('\n\n') }] }]
-            : [])
-        ].slice(-CORGE_CONFIG.limits.chatMessagesLimit)
+      ? mergePriorMessagesWithAttachments(
+          priorMessages,
+          attachmentParts,
+          stagedAttachmentSummaries,
+          CORGE_CONFIG.limits.chatMessagesLimit
+        )
       : [
           ...hybrid.slidingWindowMessages,
           {

@@ -139,6 +139,7 @@ export interface HybridRetrievalOptions {
   chatId?: string
   messageCount?: number
   chatAttachmentRefs?: readonly FileRef[]
+  priorMessages?: readonly ModelMessage[]
   prompt: string
   useContext?: boolean
   slidingWindowSize?: number
@@ -207,6 +208,7 @@ export interface RawAttachmentPart {
   dataUrl?: string
   ref?: FileRef
   filename: string
+  messageIndex?: number
 }
 
 export interface PersistTurnCompletionOpts {
@@ -273,6 +275,9 @@ export const openaiMessagePartSchema = z
   .object({
     type: z.string(),
     text: z.string().optional(),
+    filename: z.string().optional(),
+    file_data: z.string().optional(),
+    url: z.string().optional(),
     image_url: z.object({ url: z.string().optional() }).optional(),
     file: z.object({ file_data: z.string().optional(), filename: z.string().optional() }).optional()
   })

@@ -92,6 +92,40 @@ export const extractTurnAttachmentParts = (msg: z.infer<typeof streamChatBody>['
   return [...fromParts, ...fromRefs]
 }
 
+export const mergePriorMessagesWithAttachments = (
+  priorMessages: readonly ModelMessage[],
+  attachmentParts: readonly RawAttachmentPart[],
+  stagedAttachmentSummaries: readonly string[],
+  limit: number
+): ModelMessage[] => {
+  const byMsgIdx = new Map<number, string[]>()
+  const unindexed: string[] = []
+  attachmentParts.forEach((part, idx) => {
+    const summary = stagedAttachmentSummaries[idx]
+    if (!summary) return
+    if (part.messageIndex !== undefined && part.messageIndex >= 0 && part.messageIndex < priorMessages.length) {
+      const list = byMsgIdx.get(part.messageIndex) ?? []
+      list.push(summary)
+      byMsgIdx.set(part.messageIndex, list)
+    } else {
+      unindexed.push(summary)
+    }
+  })
+
+  const merged: ModelMessage[] = priorMessages.map((msg, idx) => {
+    const attached = byMsgIdx.get(idx)
+    if (!attached?.length || msg.role !== 'user') return msg
+    const baseText = extractMessageText(msg as { content?: unknown })
+    const combined = [baseText, ...attached].filter(Boolean).join('\n\n') || 'Attached files.'
+    return { role: 'user' as const, content: [{ type: 'text' as const, text: combined }] }
+  })
+
+  if (unindexed.length > 0) {
+    merged.push({ role: 'user' as const, content: [{ type: 'text' as const, text: unindexed.join('\n\n') }] })
+  }
+  return merged.slice(-limit)
+}
+
 export const extractMessageText = (msg: { content?: unknown; parts?: readonly unknown[] }): string => {
   if (typeof msg.content === 'string' && msg.content.trim()) return msg.content.trim()
   const items = (Array.isArray(msg.content) ? msg.content : Array.isArray(msg.parts) ? msg.parts : []) as Record<

@@ -39,18 +39,32 @@ const parseOpenaiMessages = (
       typeof message.content === 'string'
         ? message.content
         : (message.content ?? [])
-            .filter((p) => p.type === 'text')
+            .filter((p) => p.type === 'text' || p.type === 'input_text')
             .map((p) => p.text ?? '')
             .join('\n\n')
     if (message.role === 'assistant' && text.trim()) {
       modelMessages.push({ role: 'assistant', content: [{ type: 'text', text }] })
     }
     if (message.role !== 'user') continue
+
+    const msgParts: Omit<RawAttachmentPart, 'messageIndex'>[] = []
     for (const p of Array.isArray(message.content) ? message.content : []) {
-      const dataUrl = p.image_url?.url ?? p.file?.file_data
-      if (dataUrl?.startsWith('data:')) parts.push({ dataUrl, filename: p.file?.filename ?? 'file' })
+      const rawUrl = p.image_url?.url ?? p.file?.file_data ?? p.file_data ?? p.url
+      if (!rawUrl) continue
+      const filename = p.file?.filename ?? p.filename ?? 'file'
+      if (rawUrl.startsWith('data:')) {
+        msgParts.push({ dataUrl: rawUrl, filename })
+      } else {
+        const refMatch = /^\/api\/files\/([A-Za-z0-9_-]+_[a-f0-9]{24})$/.exec(rawUrl)
+        if (refMatch?.[1]) msgParts.push({ ref: refMatch[1], filename })
+      }
     }
-    if (text.trim()) modelMessages.push({ role: 'user', content: [{ type: 'text', text }] })
+
+    if (text.trim() || msgParts.length > 0) {
+      const messageIndex = modelMessages.length
+      modelMessages.push({ role: 'user', content: [{ type: 'text', text: text.trim() }] })
+      for (const mp of msgParts) parts.push({ ...mp, messageIndex })
+    }
   }
   return { parts, modelMessages }
 }

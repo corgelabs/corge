@@ -20,6 +20,7 @@ import type {
   VectorValue
 } from './schema'
 import {
+  extractMessageText,
   formatAttachmentLine,
   isContextItemVisible,
   isUserContextShape,
@@ -285,6 +286,7 @@ export class ChatContextEngine {
       chatId,
       messageCount = 0,
       chatAttachmentRefs,
+      priorMessages,
       prompt,
       useContext = true,
       slidingWindowSize = CORGE_CONFIG.limits.chatMessagesLimit,
@@ -319,9 +321,13 @@ export class ChatContextEngine {
     const infobasePromise =
       useContext !== false && prompt.trim()
         ? Promise.all([userContextPromise, slidingWindowPromise]).then(([userContext, windowDocs]) => {
-            const recentConversation = windowDocs
-              .slice(-4)
-              .map((m) => `${m.role}: ${m.content.slice(0, 350)}`)
+            const recentConversation = (
+              windowDocs.length > 0
+                ? windowDocs.slice(-4).map((m) => `${m.role}: ${m.content.slice(0, 350)}`)
+                : (priorMessages ?? [])
+                    .slice(-5, -1)
+                    .map((m) => `${m.role}: ${extractMessageText(m as { content?: unknown }).slice(0, 350)}`)
+            )
               .join('\n')
               .slice(0, 1_500)
             return this.getContext(prompt, undefined, {
