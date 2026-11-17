@@ -390,7 +390,6 @@ export const buildCompletedTurnWriteBatch = (
   batch.update(opts.chatDocRef, {
     title: opts.title,
     model: opts.selectedModel,
-    deleted: false,
     activeGenerationId: null,
     messageCount: FieldValue.increment(2),
     ...(opts.stagedRefs.length > 0 ? { attachmentRefs: FieldValue.arrayUnion(...opts.stagedRefs) } : {}),

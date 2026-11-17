@@ -231,7 +231,7 @@ None may double-apply when the provider retries.
 
 **O(1) hot paths, with hard max-key eviction so warm instances cannot OOM:**
 - `acquireHttpLimit`
-- the `RateLimiter` token buckets for `mistral`, `jev`, `ai`, `workflows`, `firestore`, `storage`, `emails`, `payments`
+- the `RateLimiter` token buckets for `docai`, `decisions`, `ai`, `workflows`, `firestore`, `storage`, `emails`, `payments`
 - the LRU caches (`tokenCache`, JWK, circuit breaker)
 
 **Batching:**
@@ -251,7 +251,7 @@ None may double-apply when the provider retries.
 **Cold starts:**
 - Lazy init of all heavy clients:
   - Firestore and Bucket
-  - Vertex, Mistral, Jev
+  - Vertex, Document AI, Gemini Decisions
   - Stripe and Dodo
   - Resend and SendGrid
 - No heavy work at module load in `dist/index.js`.
@@ -260,13 +260,14 @@ None may double-apply when the provider retries.
 ### Pillar 5: Resilience & Fault Tolerance
 
 **Upstreams.** All external calls run inside distributed 3-state circuit breakers (`_system/breaker_*`), with sliding-window rate limiters and explicit `AbortSignal` timeouts. This covers:
-- AI: `vertex`, `mistral`, `jev`, `jina`
+- AI: `vertex`, `docai`, `decisions`, `jina`
 - identity: `identitytoolkit`, OIDC
 - email: `resend`, `sendgrid`
 - payments: `stripe`, `dodo`
 
 **Graceful fallbacks:**
-- Mistral OCR → Vertex Vision
+- Document AI OCR → Vertex Vision
+- Gemini Decisions → Vertex `gemini-3.5-flash-lite` structured output
 - vector recall → lexical or sliding window
 - Resend ↔ SendGrid failover
 - hard-bounce and spam suppression via `email_suppression`

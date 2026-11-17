@@ -1,12 +1,16 @@
 import { z } from 'zod'
 
-export type JevQuestion =
+export type DecisionQuestion =
   | { type: 'noul'; instructions: string; criteria?: { true: string; false: string } }
   | { type: 'choice'; instructions: string; criteria: Record<string, string> }
   | { type: 'score'; instructions: string; criteria: string[] }
 
 export const answerSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('noul'), noul: z.number().min(0).max(1) }),
+  z.object({
+    type: z.literal('noul'),
+    noul: z.number().min(0).max(1),
+    confidence: z.number().optional()
+  }),
   z.object({
     type: z.literal('choice'),
     choice: z.string(),
@@ -21,7 +25,10 @@ export const answerSchema = z.discriminatedUnion('type', [
   })
 ])
 
-export const envelopeSchema = z.object({ model: z.string(), answers: z.record(z.string(), answerSchema) })
+export const envelopeSchema = z.object({
+  model: z.string(),
+  answers: z.record(z.string(), answerSchema)
+})
 
 export interface AiUsageSummary {
   model: string
@@ -31,8 +38,53 @@ export interface AiUsageSummary {
   pages?: number
 }
 
-export type JevAnswer = z.infer<typeof answerSchema>
+export type DecisionAnswer = z.infer<typeof answerSchema>
 export type DecideResult = z.infer<typeof envelopeSchema> & { usage?: AiUsageSummary }
+
+export interface DocAiTextSegment {
+  startIndex?: string | number
+  endIndex?: string | number
+}
+
+export interface DocAiLayoutUnit {
+  layout?: {
+    textAnchor?: { textSegments?: DocAiTextSegment[] }
+    confidence?: number
+  }
+}
+
+export interface DocAiPage {
+  pageNumber?: number
+  paragraphs?: DocAiLayoutUnit[]
+  lines?: DocAiLayoutUnit[]
+  blocks?: DocAiLayoutUnit[]
+}
+
+export interface DocAiProcessResponse {
+  document?: {
+    text?: string
+    pages?: DocAiPage[]
+  }
+}
+
+export interface GeminiDecisionsWireResponse {
+  model?: string
+  answers?: Record<
+    string,
+    {
+      noul?: number
+      choice?: string
+      score?: number
+      probabilities?: Record<string, number>
+      confidence?: number
+    }
+  >
+  usage?: {
+    total_input_tokens?: number
+    total_output_tokens?: number
+    total_tokens?: number
+  }
+}
 
 export interface VisionOptions {
   schema?: Record<string, unknown>

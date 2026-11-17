@@ -85,15 +85,16 @@ const routes = corge.define.routes({
     mcp: true,
     input: z.strictObject({ fileRef: corge.schemas.fileRef }),
     handler: async ({ input, step }) => {
-      const extracted = await step('vision-extract', () =>
-        corge.ai.vision({
-          fileRef: input.fileRef,
-          prompt: 'Extract vendor name and total amount in cents.',
-          schema: z.object({ vendor: z.string(), totalCents: z.number().int() })
-        })
+      const scan = await step('scan-invoice', () =>
+        corge.attachments.scan({ ref: input.fileRef, type: 'invoice' })
       )
       return step('save-invoice', {
-        fn: () => corge.db.create('invoice', { userId: corge.userId, ...extracted.output }),
+        fn: () =>
+          corge.db.create('invoice', {
+            userId: corge.userId,
+            vendor: String(scan.fields.vendor ?? ''),
+            totalCents: Number(scan.fields.totalCents ?? 0)
+          }),
         rollback: (inv) => corge.db.delete('invoice', inv.id)
       })
     }
@@ -118,8 +119,8 @@ npx corge deploy prod  # Bundle + merge rules/indexes + deploy to GCP Cloud Func
 | **`npx corge init`** | Scaffolds a clean project (`tsconfig.json`, `src/index.ts`, `src/config/`, `src/routes/`, `src/services/`). |
 | **`npx corge dev`** | Loads `.env` + GCP Secret Manager secrets and starts a hot-reloading Hono server on `PORT` (`8080`). |
 | **`npx corge build`** | Bundles `src/index.ts` + `@corgelabs/corge` into `dist/index.cjs` (`node24`, CJS, sourcemaps). |
-| **`npx corge deploy <prod\|dev>`** | Verifies branch guard (`main`/`dev`), builds, merges Firestore/Storage rules & indexes, and deploys. |
-| **`npx corge test`** | Runs the E2E contract & integration test suite (`node --test`) with GCP Secret Manager injection. |
+| **`npx corge deploy <prod\|dev>`** | Verifies branch guard (`main`/`dev`), auto-provisions GCP APIs / Document AI OCR / `GEMINI_API_KEY` / Cloud Tasks shards, builds, merges Firestore/Storage rules & indexes, and deploys. |
+| **`npx corge test [baseUrl]`** | Runs the E2E contract & integration test suite (`node --test`) locally or against a deployed URL with GCP Secret Manager injection. |
 | **`npx corge check`** | Runs `tsc --noEmit` in `<1s`. |
 | **`npx corge link [path]`** | Symlinks a local checkout of `corgelabs/corge` for live multi-repo editing (`corge unlink` restores npm). |
 | **`npx corge env -- <cmd>`** | Runs any command with `.env` + GCP Secret Manager secrets injected into `process.env`. |

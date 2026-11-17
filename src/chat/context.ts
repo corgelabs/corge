@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { ModelMessage } from 'ai'
 import { FieldValue, type Query } from 'firebase-admin/firestore'
-import type { JevQuestion } from '../ai'
+import type { DecisionQuestion } from '../ai'
 import { CORGE_CONFIG, type DbRole } from '../config'
 import { fileScan, fileScanError, type EntryId, type FileRef } from '../db'
 import { Corge } from '../index'
@@ -94,7 +94,7 @@ export class ChatContextEngine {
     const stateHint =
       (userState ? ' Use the provided userState when judging relevance.' : '') +
       (recentConversation ? ' Consider recentConversation for follow-up topic continuity.' : '')
-    const questions: Record<string, JevQuestion> = {}
+    const questions: Record<string, DecisionQuestion> = {}
     validItems.forEach((item, idx) => {
       questions[`doc_${idx}`] = {
         type: 'noul',

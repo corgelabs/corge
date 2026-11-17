@@ -88,8 +88,7 @@ const getActiveCorgeState = (): CorgeRuntimeState | undefined => corgeStorage.ge
 
 const buildDefaultEnvBindings = (isDev = false): AppBindings => ({
   SDK_API_KEY: process.env.SDK_API_KEY ?? '',
-  MISTRAL_API_KEY: process.env.MISTRAL_API_KEY ?? '',
-  TYPESAFE_API_KEY: process.env.TYPESAFE_API_KEY ?? '',
+  GEMINI_API_KEY: process.env.GEMINI_API_KEY ?? '',
   JINA_API_KEY: process.env.JINA_API_KEY ?? '',
   WEB_API_KEY: process.env.WEB_API_KEY ?? '',
   RESEND_API_KEY: process.env.RESEND_API_KEY ?? '',
@@ -364,7 +363,8 @@ export namespace corge {
     export type WorkflowRuntimeEntry = import('./tasks').WorkflowRuntimeEntry
     export type AiUsageSummary = import('./ai').AiUsageSummary
     export type DecideResult = import('./ai').DecideResult
-    export type JevQuestion = import('./ai').JevQuestion
+    export type DecisionQuestion = import('./ai').DecisionQuestion
+    export type DecisionAnswer = import('./ai').DecisionAnswer
     export type AiGenerateOptions<O = string> = import('./ai').AiGenerateOptions<O>
     export type AiGenerateResult<O = string> = import('./ai').AiGenerateResult<O>
     export type VisionOptions = import('./ai').VisionOptions

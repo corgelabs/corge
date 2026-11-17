@@ -1,69 +1,12 @@
 import { execSync, spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { applicationDefault } from 'firebase-admin/app'
-import { CORGE_CONFIG } from '../config'
 import { buildConsumerApp, getCorgeRootDir } from './builder'
+import { provisionCorgeGcpInfra } from './gcp-provision'
 
 interface FirestoreIndexesFile {
   indexes?: unknown[]
   fieldOverrides?: unknown[]
-}
-
-const ensureCloudTasksShardQueues = async (project: string, target: 'prod' | 'dev'): Promise<void> => {
-  const shardsCount = Math.max(1, CORGE_CONFIG.tasks.defaultShardsCount)
-  if (shardsCount <= 1) return
-  const region = process.env.GCP_REGION || CORGE_CONFIG.region
-  const baseQueueId = target === 'prod' ? `${project}-tasks` : `${project}-tasks-dev`
-  const parentLoc = `projects/${project}/locations/${region}`
-
-  const { access_token } = await applicationDefault().getAccessToken()
-  if (!access_token) return
-  const headers = {
-    Authorization: `Bearer ${access_token}`,
-    'Content-Type': 'application/json',
-    'x-goog-user-project': project
-  }
-
-  const existing = new Set<string>()
-  let pageToken = ''
-  do {
-    const url = `https://cloudtasks.googleapis.com/v2/${parentLoc}/queues?pageSize=100${
-      pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : ''
-    }`
-    const res = await fetch(url, { headers })
-    if (!res.ok) return
-    const data = (await res.json()) as { queues?: { name?: string }[]; nextPageToken?: string }
-    for (const q of data.queues ?? []) {
-      if (q.name) existing.add(q.name)
-    }
-    pageToken = data.nextPageToken ?? ''
-  } while (pageToken)
-
-  const missing: string[] = []
-  for (let idx = 1; idx < shardsCount; idx++) {
-    const fullName = `${parentLoc}/queues/${baseQueueId}-${String(idx).padStart(2, '0')}`
-    if (!existing.has(fullName)) missing.push(fullName)
-  }
-  if (missing.length === 0) return
-
-  console.log(`i  cloudtasks: provisioning ${missing.length} shard queue(s) for ${baseQueueId} in ${region}...`)
-  await Promise.all(
-    missing.map(async (name) => {
-      const res = await fetch(`https://cloudtasks.googleapis.com/v2/${parentLoc}/queues`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          name,
-          rateLimits: { maxDispatchesPerSecond: 500, maxConcurrentDispatches: 1000 },
-          retryConfig: { maxAttempts: CORGE_CONFIG.tasks.maxAttempts, minBackoff: '2s', maxBackoff: '20s' }
-        })
-      })
-      if (!res.ok && res.status !== 409) {
-        console.warn(`⚠  cloudtasks: failed to create ${name} (${res.status}): ${await res.text()}`)
-      }
-    })
-  )
 }
 
 const mergeFirestoreIndexes = (base: FirestoreIndexesFile, custom: FirestoreIndexesFile): FirestoreIndexesFile => {
@@ -122,7 +65,7 @@ export const deployConsumerApp = async (
     process.exit(1)
   }
 
-  await ensureCloudTasksShardQueues(project, target)
+  await provisionCorgeGcpInfra(project, target)
   await buildConsumerApp(cwd, target)
 
   const corgeRoot = getCorgeRootDir()

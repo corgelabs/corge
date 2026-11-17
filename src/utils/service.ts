@@ -129,9 +129,9 @@ class RateLimiter {
 
   #cfg(now = Date.now()) {
     const base = CORGE_CONFIG.limits.buckets[this.#bucket]
-    const windowMs = this.#bucket === 'mistral' ? base.windowMs + 3000 : base.windowMs
+    const windowMs = base.windowMs
     const max = this.#maxOverride ?? base.max
-    const safeMax = this.#bucket === 'mistral' ? Math.max(1, max - 5) : max
+    const safeMax = max
     this.#slots = this.#slots.filter((at) => at > now - windowMs)
     if (now >= this.#remoteResetAt) this.#remoteRemaining = undefined
     return { now, windowMs, max, safeMax }
@@ -282,7 +282,7 @@ export class ResilienceService {
       if (status === 400 || status === 401 || status === 403 || status === 404 || status === 415 || status === 422) {
         return false
       }
-      if (status === 502 || status === 503 || status === 504 || status === 408) {
+      if (status === 408 || status === 429 || status >= 500) {
         return true
       }
     }
@@ -451,8 +451,8 @@ export class ResilienceService {
       return result
     } catch (err) {
       if (this.#isUpstreamProviderError(err)) {
-        const updated = await this.#recordBreakerFailure(breakerKey, targetIsDev)
-        if (updated.state === 'OPEN' && fallbackFn) {
+        await this.#recordBreakerFailure(breakerKey, targetIsDev)
+        if (fallbackFn) {
           return fallbackFn()
         }
       }

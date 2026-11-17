@@ -57,7 +57,7 @@ export const LIMITS = CORGE_CONFIG.limits.buckets
 export type Bucket = keyof typeof LIMITS
 
 /** Built-in provider breakers plus any app-defined key (`[a-z0-9-]` recommended; used in a Firestore doc ID). */
-export type CircuitBreakerKey = 'mistral' | 'jev' | 'vertex' | 'emails' | 'payments' | (string & {})
+export type CircuitBreakerKey = 'docai' | 'decisions' | 'vertex' | 'emails' | 'payments' | (string & {})
 export type CircuitBreakerStateName = 'CLOSED' | 'OPEN' | 'HALF_OPEN'
 
 export interface CircuitBreakerRecord {

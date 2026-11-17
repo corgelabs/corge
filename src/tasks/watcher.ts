@@ -85,7 +85,8 @@ export class TaskWatcherEngine {
               headers,
               body: JSON.stringify({
                 name: targetParent,
-                rateLimits: { maxDispatchesPerSecond: 500, maxConcurrentDispatches: 1000 }
+                rateLimits: { maxDispatchesPerSecond: 500, maxConcurrentDispatches: 1000 },
+                retryConfig: { maxAttempts: CORGE_CONFIG.tasks.maxAttempts, minBackoff: '2s', maxBackoff: '20s' }
               })
             }).catch(() => null)
             if (!createRes?.ok) targetParent = queueBase

@@ -1,7 +1,7 @@
 # Corge (`@corgelabs/corge`) — Complete Architecture, Methods Map & Per-Function Specification (`SPEC.md`)
 
-> **Version**: 2.3 (Flat Domain Barrel & `<= 500 LOC` Class-Composed Architecture, Methods Map & Per-Function Specification)  
-> **Runtime Stack**: Node.js 24 LTS (`nodejs24` GA on Cloud Functions 2nd Gen) · Hono · Cloud Tasks · Cloud Firestore Enterprise · Firebase Storage · Vertex AI (`claude-haiku-5-5`, `claude-sonnet-4-5`, `text-embedding-005`) · Mistral OCR (`mistral-ocr-latest`) · TypeSafe Jev (`jev-latest`) · Jina Reader (`r.jina.ai`)
+> **Version**: 3.0 (Flat Domain Barrel & `<= 500 LOC` Class-Composed Architecture, Methods Map & Per-Function Specification)  
+> **Runtime Stack**: Node.js 24 LTS (`nodejs24` GA on Cloud Functions 2nd Gen) · Hono · Cloud Tasks · Cloud Firestore Enterprise · Firebase Storage · Vertex AI (`claude-haiku-5-5`, `claude-sonnet-5-5`, `gemini-3.5-flash-lite`, `text-embedding-005`) · Google Cloud Document AI (`OCR_PROCESSOR`) · Google Gemini Decisions API (`gemini-decision-1`) · Jina Reader (`r.jina.ai`)
 
 ---
 
@@ -75,9 +75,9 @@ src/
 ├── config.ts                     # [Config] CORGE_CONFIG, defineConfig(), SECRET_NAMES, CoreConfig/AppBindings/RbacConfig types
 ├── ai/
 │   ├── index.ts                  # [AI Barrel] Re-exports schema, AiService
-│   ├── schema.ts                 # [AI] Pure types & schemas (JevQuestion, DecideResult, VisionOptions, VisionResult, AiGenerateOptions, AiGenerateResult)
-│   ├── utils.ts                  # [AI] Pure prompt builders (buildVisionFallbackPrompt)
-│   └── service.ts                # [AI] AiService (decide, vision, generate, embed) + Mistral OCR, TypeSafe Jev & Vertex Anthropic clients
+│   ├── schema.ts                 # [AI] Pure types & schemas (DecisionQuestion, DecisionAnswer, DecideResult, VisionOptions, VisionResult, AiGenerateOptions, AiGenerateResult)
+│   ├── utils.ts                  # [AI] Pure formatters & normalizers (formatDocAiPages, toGeminiDecisionQuestions, normalizeGeminiDecisionAnswers, buildVertexDecideFallbackSpec)
+│   └── service.ts                # [AI] AiService (decide, vision, generate, embed) + Google Document AI OCR, Gemini Decisions API & Vertex Google/Anthropic clients
 ├── attachments/
 │   ├── index.ts                  # [Attachments Barrel] Re-exports schema, AttachmentsService, coreAttachmentsRoutes
 │   ├── schema.ts                 # [Attachments] Pure Zod schemas, types & AttachmentTypeSpec registry
@@ -97,7 +97,7 @@ src/
 │   ├── index.ts                  # [Chat Barrel] Re-exports schema, ChatService, coreChatRoutes, mcpRoute
 │   ├── schema.ts                 # [Chat] Pure Zod schemas & static types (AgentConfig, UserContext, ChatMetadataDoc, ChatMessageDoc)
 │   ├── utils.ts                  # [Chat] SSRF guard (isSafePublicUrl), message/attachment parsers, dynamic context & UI stream builders
-│   ├── context.ts                # [Chat] ChatContextEngine (InfoBase Jev selector, vector recall, sliding window, userContext)
+│   ├── context.ts                # [Chat] ChatContextEngine (InfoBase Gemini Decisions selector, vector recall, sliding window, userContext)
 │   ├── stream.ts                 # [Chat] ChatStreamEngine (SSE turn execution, attachment staging, activeGenerations lock, cancel)
 │   ├── service.ts                # [Chat] ChatService facade (stream, ask, retrieveContext, getContext, saveChat, messages, cancel)
 │   └── routes.ts                 # [Chat] coreChatRoutes + MCP JSON-RPC handler (mcpRoute) + OpenAI-compatible endpoints
@@ -195,13 +195,13 @@ src/
 | **`corge.files.hardDelete`** | `src/files/service.ts` | `FilesService.hardDelete` | `(ref: FileRef) => Promise<{ ref: FileRef }>` | Permanently deletes file from GCS and Firestore inside a reversible `step` with rollback. |
 | **`corge.files.canAccess`** | `src/files/service.ts` | `FilesService.canAccess` | `(ref: string, userId?: EntryId) => boolean` | $O(1)$ prefix check verifying `ref.slice(0, -25) === userId` (or admin). |
 | **`corge.files.bucket`** | `src/files/service.ts` | `FilesService.bucket` | `(isDev?: boolean) => Bucket` | Returns raw Firebase Storage `Bucket` instance for prod or dev. |
-| **`corge.ai.vision`** | `src/ai/service.ts` | `AiService.vision` | `(documentUrl: string, opts?: VisionOptions) => Promise<VisionResult>` | Mistral OCR + JSON Schema annotation + automatic Vertex Vision fallback under circuit breaker. |
-| **`corge.ai.decide`** | `src/ai/service.ts` | `AiService.decide` | `(state: unknown, questions: Record<string, JevQuestion>) => Promise<DecideResult>` | TypeSafe Jev `systemOne` probabilistic reasoning (`noul`, `choice`, `score`) under circuit breaker. |
-| **`corge.ai.generate`** | `src/ai/service.ts` | `AiService.generate` | `<O = string>(promptOrMessages: string \| ModelMessage[], opts?: AiGenerateOptions<O>) => Promise<AiGenerateResult<O>>` | Vertex Anthropic text or structured Zod output generation under circuit breaker. |
+| **`corge.ai.vision`** | `src/ai/service.ts` | `AiService.vision` | `(documentUrl: string, opts?: VisionOptions) => Promise<VisionResult>` | Google Cloud Document AI (`OCR_PROCESSOR`) + single-pass Vertex `gemini-3.5-flash-lite` structured extraction + Vertex Vision fallback under circuit breaker. |
+| **`corge.ai.decide`** | `src/ai/service.ts` | `AiService.decide` | `(state: unknown, questions: Record<string, DecisionQuestion>) => Promise<DecideResult>` | Google Gemini Decisions API (`gemini-decision-1`: `noul`, `choice`, `score`) + automatic Vertex `gemini-3.5-flash-lite` fallback under circuit breaker. |
+| **`corge.ai.generate`** | `src/ai/service.ts` | `AiService.generate` | `<O = string>(promptOrMessages: string \| ModelMessage[], opts?: AiGenerateOptions<O>) => Promise<AiGenerateResult<O>>` | Multi-provider Vertex AI (`gemini-*` & `claude-*`) text or structured Zod output generation under circuit breaker. |
 | **`corge.ai.embed`** | `src/ai/service.ts` | `AiService.embed` | `(text: string) => Promise<number[] \| null>` | Generates 768-dim embedding vector via Vertex `text-embedding-005` (null if `< 15` chars). |
-| **`corge.attachments.scan`** | `src/attachments/service.ts` | `AttachmentsService.scan` | `(raw: ScanAttachmentInput, opts?: { types?: AttachmentTypesMap; step?: StepRunner }) => Promise<FileScan>` | Singleflight + cross-user SHA-256 cache + multi-step OCR → classify → extract → persist pipeline. |
+| **`corge.attachments.scan`** | `src/attachments/service.ts` | `AttachmentsService.scan` | `(raw: ScanAttachmentInput, opts?: { types?: AttachmentTypesMap; step?: StepRunner }) => Promise<FileScan>` | Singleflight + cross-user SHA-256 cache + single-pass OCR → classify → structured markdown extract → persist pipeline. |
 | **`corge.attachments.process`** | `src/attachments/service.ts` | `AttachmentsService.process` | `(raw: ProcessAttachmentsInput, opts?: { types?: AttachmentTypesMap; step?: StepRunner }) => Promise<ProcessAttachmentsOutput>` | Batch preloads `file` docs and fans out `#scanAttachmentTask` via `step.map` with `shortCircuit`. |
-| **`corge.attachments.classify`** | `src/attachments/service.ts` | `AttachmentsService.classify` | `(markdown: string, types?: AttachmentTypesMap) => Promise<{ attachmentType: string; confidence: number }>` | Classifies document markdown into a registered `AttachmentTypesMap` key via Jev `choice`. |
+| **`corge.attachments.classify`** | `src/attachments/service.ts` | `AttachmentsService.classify` | `(markdown: string, types?: AttachmentTypesMap) => Promise<{ attachmentType: string; confidence: number }>` | Classifies document markdown into a registered `AttachmentTypesMap` key via Gemini Decisions `choice`. |
 | **`corge.tasks.status`** | `src/tasks/service.ts` | `TasksService.status` | `<O = unknown>(taskId: string) => Promise<TaskStatusRecord<O>>` | Reads `_tasks/{taskId}`, enforces task ownership, and hydrates GCS Claim-Check response. |
 | **`corge.tasks.signal`** | `src/tasks/service.ts` | `TasksService.signal` | `(taskId: string, signalName: string, payload?: unknown) => Promise<{ taskId: string; signaled: true }>` | Stores signal in `_tasks/{taskId}.signals`, increments `epoch` if waiting, and wakes workflow. |
 | **`corge.tasks.cancel`** | `src/tasks/service.ts` | `TasksService.cancel` | `(taskId: string) => Promise<{ taskId: string; status: 'cancelled' }>` | Bumps `epoch` to `'compensating'`, aborts local worker or runs replay-only Saga compensation, marks `'cancelled'`. |
@@ -223,8 +223,8 @@ src/
 | **`corge.chat.stream`** | `src/chat/service.ts` | `ChatService.stream` | `(agent: AgentConfig, messages: ModelMessage[], userId?: EntryId, opts?: RunAgentOptions) => Promise<StreamTextResult<any, any>>` | Executes `streamText` with prompt caching, dynamic context block, `toolPresets` activeTools, and `maxSteps`. |
 | **`corge.chat.messages`** | `src/chat/service.ts` | `ChatService.messages` | `(chatId: EntryId, opts?: ListChatMessagesOptions) => Promise<ChatMessagePublic[]>` | Enforces chat ownership and lists paginated messages from `chat/{chatId}/messages` in chronological order. |
 | **`corge.chat.cancel`** | `src/chat/service.ts` | `ChatService.cancel` | `(chatId: EntryId) => Promise<{ chatId: string; cancelled: true }>` | Clears `activeGenerationId` in Firestore (triggering remote `onSnapshot` abort) and aborts local controller. |
-| **`corge.chat.retrieveContext`** | `src/chat/service.ts` | `ChatService.retrieveContext` | `(opts: Omit<HybridRetrievalOptions, 'userId'> & { userId?: EntryId }) => Promise<HybridRetrievalResult>` | Runs sliding window, in-chat + cross-chat vector recall, `resolveUserContext`, and Jev InfoBase selection in parallel. |
-| **`corge.chat.getContext`** | `src/chat/service.ts` | `ChatService.getContext` | `(prompt: string, catalog?: readonly ContextItemSpec[], options?: GetContextOptions) => Promise<ContextEntry[]>` | Filters InfoBase catalog by `audiences`, scores relevance via Jev `noul`, and loads matched `.md` files. |
+| **`corge.chat.retrieveContext`** | `src/chat/service.ts` | `ChatService.retrieveContext` | `(opts: Omit<HybridRetrievalOptions, 'userId'> & { userId?: EntryId }) => Promise<HybridRetrievalResult>` | Runs sliding window, in-chat + cross-chat vector recall, `resolveUserContext`, and Gemini Decisions InfoBase selection in parallel. |
+| **`corge.chat.getContext`** | `src/chat/service.ts` | `ChatService.getContext` | `(prompt: string, catalog?: readonly ContextItemSpec[], options?: GetContextOptions) => Promise<ContextEntry[]>` | Filters InfoBase catalog by `audiences`, scores relevance via Gemini Decisions `noul`, and loads matched `.md` files. |
 | **`corge.emails.send`** | `src/emails/service.ts` | `EmailsService.send` | `<T>(input: SendEmailInput<T>, opts?: EmailCallOptions) => Promise<SendEmailResult>` | Sends a transactional email via SendGrid, Resend, or Firebase/dev with idempotency, suppression check, and `email_log` audit entry. |
 | **`corge.emails.sendBatch`** | `src/emails/service.ts` | `EmailsService.sendBatch` | `(inputs: SendEmailInput[], opts?: EmailCallOptions) => Promise<SendBatchEmailResult>` | Sends up to 100 transactional emails in a single batch (native Resend `/emails/batch` or parallel dispatch). |
 | **`corge.emails.sendAuthEmail`** | `src/emails/service.ts` | `EmailsService.sendAuthEmail` | `(purpose: AuthEmailPurpose, to: string, vars?: Partial<AuthEmailVariables>, opts?: EmailCallOptions) => Promise<SendEmailResult>` | Dispatches a transactional auth email (`verify_email`, `reset_password`, `verify_recovery_email`, `account_recovery`, `welcome`, `security_alert`). |
@@ -257,7 +257,9 @@ Accessed via the non-enumerable `corge.internals` prototype getter (`src/index.t
 | **`resilience`** | `corge.internals.resilience.circuitBreaker` | `src/utils/service.ts` | `ResilienceService.circuitBreaker` | Wraps upstream calls in a 3-state (`CLOSED`/`OPEN`/`HALF_OPEN`) Firestore-synced circuit breaker. |
 | **`resilience`** | `corge.internals.resilience.getCircuitBreakerState` | `src/utils/service.ts` | `ResilienceService.getCircuitBreakerState` | Reads `_system/breaker_${key}` state (with 3s in-memory cache + global singleflight). |
 | **`resilience`** | `corge.internals.resilience.resetCircuitBreaker` | `src/utils/service.ts` | `ResilienceService.resetCircuitBreaker` | Resets breaker state to `CLOSED` with `failureCount: 0` in memory and Firestore. |
-| **`resilience`** | `corge.internals.resilience.acquireLimit` | `src/utils/service.ts` | `ResilienceService.acquireLimit` | Sliding-window rate limiter for `mistral`, `jev`, `ai`, `workflows`, `firestore`, `storage` buckets. |
+| **`resilience`** | `corge.internals.resilience.acquireLimit` | `src/utils/service.ts` | `ResilienceService.acquireLimit` | Sliding-window rate limiter for `docai`, `decisions`, `ai`, `workflows`, `firestore`, `storage`, `emails`, `payments` buckets. |
+| **`resilience`** | `corge.internals.resilience.chargeLimit` | `src/utils/service.ts` | `ResilienceService.chargeLimit` | Charges multi-unit page/batch cost against an upstream token bucket. |
+| **`resilience`** | `corge.internals.resilience.syncLimit` | `src/utils/service.ts` | `ResilienceService.syncLimit` | Synchronizes a local token bucket with upstream rate-limit headers. |
 | **`resilience`** | `corge.internals.resilience.acquireHttpLimit` | `src/utils/service.ts` | `ResilienceService.acquireHttpLimit` | Fixed-window in-memory counter rate limiter for HTTP user/IP keys (throws `429` with `Retry-After`). |
 | **`context`** | `corge.internals.context.run` | `src/index.ts` | `runWithCorge` | Runs an async callback inside `corgeStorage` (`AsyncLocalStorage<CorgeRuntimeState>`). |
 | **`context`** | `corge.internals.context.getState` | `src/index.ts` | `getActiveCorgeState` | Returns the current `CorgeRuntimeState \| undefined` from `corgeStorage`. |
@@ -389,7 +391,7 @@ All built-in routes are defined in [`src/router/schema.ts`](file:///Users/nikdel
 | `revocationWatermarks` | `src/auth/session.ts` | `[RevocationWatermarkState, RevocationWatermarkState]` | Synced every `2s`/`3s` with `_system/auth_revocations` | Tracks per-UID revocation timestamps for prod (`[0]`) and dev (`[1]`). |
 | `jwksCache` | `src/auth/oidc.ts` | `Map<OAuthProvider, JwksCacheEntry>` | `1h` TTL (`60 * 60 * 1000` ms) | Caches Google and Apple OIDC public JWKs. |
 | `#devEmailOutbox` | `src/emails/service.ts` | `Map<string, TransactionalEmailPayload>` | Keyed by `${purpose}:${email}`, max `500` entries (dev/test only) | Captures transactional OTP/magic-link emails in memory for dev/E2E tests (`getLastDevEmail`). |
-| `cachedJev` / `cachedMistral` | `src/ai/service.ts` | `TypeSafeClient` / `Mistral` | Re-instantiated only if API key changes | Cached upstream AI SDK clients (Mistral client includes OCR rate-limit response hook). |
+| `cachedDocAiProcessorUrl` / `cachedVertex*` | `src/ai/service.ts` | `string` / Vertex SDK providers | Re-resolved only if project/location/processor changes | Cached Document AI `OCR_PROCESSOR` endpoint URL and Vertex Google/Anthropic providers. |
 | `activeTaskExecutions` | `src/tasks/worker.ts` | `Map<string, ActiveTaskExecution>` | Registered during `executeWorkflowTask` | Allows `cancel()` on the same instance to abort & compensate an in-flight worker immediately. |
 | `compensationLocks` | `src/tasks/utils.ts` | `Map<string, Promise<void>>` | Per `taskId` promise chain | Serializes Saga `compensate()` calls so worker & cancel paths never double-run rollbacks. |
 | `batchQueue` | `src/tasks/watcher.ts` | `BatchItem[]` | Flushed on `queueMicrotask` in chunks of `100` across `20` shards | Coalesces concurrent Cloud Tasks dispatches into `tasks:batchCreate` HTTP calls. |
@@ -467,9 +469,9 @@ flowchart LR
 
   Scan --> SF["resilience.singleflight('scan:<env>:<ref>:<type>')"]
   SF --> ShaDedup["#findCrossUserByShaSum(ref, shaSum, type) (cross-user Firestore dedupe)"]
-  ShaDedup -- "Miss" --> OCR["step('ocr'): ai.vision(dataUrl) -> Mistral OCR (or Vertex Vision if breaker OPEN)"]
-  OCR --> Classify["step('classify'): attachments.classify(markdown) -> ai.decide() (TypeSafe Jev)"]
-  Classify --> Extract["step('extract'): ai.vision(dataUrl, { schema }) -> parseFields() via Zod"]
+  ShaDedup -- "Miss" --> OCR["step('ocr'): ai.vision(dataUrl) -> Google Document AI OCR (or Vertex Vision if breaker OPEN)"]
+  OCR --> Classify["step('classify'): attachments.classify(markdown) -> ai.decide() (Gemini Decisions)"]
+  Classify --> Extract["step('extract'): ai.generate(markdown, { model: vertexFlash, schema }) -> parseFields() via Zod"]
   Extract --> Persist["step('persist'): db.update('file', ref, { scan, scanError: null })"]
   Persist --> Defects{"Permanent Defect? (400/415/422/encrypted/blank)"}
   Defects -- "Yes" --> PersistErr["Persist FileScanError on 'file' doc & throw NonRetryableError"]
@@ -488,7 +490,7 @@ flowchart TD
   Hybrid --> H1["1. Sliding Window: Last 15 messages from chat/{chatId}/messages"]
   Hybrid --> H2["2. Vector Recall: ai.embed(prompt) -> in-chat (top 5) + cross-chat collectionGroup (top 3) COSINE <= 0.35"]
   Hybrid --> H3["3. Per-User Context: agent.resolveUserContext({ userId, corge, signal }) (3.5s timeout)"]
-  Hybrid --> H4["4. InfoBase Selection: chat.getContext(prompt, catalog, { audiences, userState }) via Jev 'noul' >= 0.5"]
+  Hybrid --> H4["4. InfoBase Selection: chat.getContext(prompt, catalog, { audiences, userState }) via Gemini Decisions 'noul' >= 0.5"]
 
   Stage & H1 & H2 & H3 & H4 --> RunAgent["chat.stream(agent, messages, userId, opts) (chat/service.ts)"]
   RunAgent --> SysPrompts["System Message 1: Static Instructions (Anthropic/Vertex ephemeral cacheControl)\nSystem Message 2: #buildDynamicContextBlock (<user_state>, <user_records>, <recalled_memory>, <infobase_context>, <staged_attachments>)"]
@@ -587,7 +589,7 @@ The sole public entrypoint for `@corge`, defining `Corge`, `corge`, `useCorge`, 
 Centralized platform configuration, secret names, RBAC types, and deep-merge override helper.
 
 #### Constants & State
-- **`SECRET_NAMES`**: `['SDK_API_KEY', 'MISTRAL_API_KEY', 'TYPESAFE_API_KEY', 'JINA_API_KEY', 'WEB_API_KEY'] as const`
+- **`SECRET_NAMES`**: `['SDK_API_KEY', 'GEMINI_API_KEY', 'JINA_API_KEY', 'WEB_API_KEY'] as const`
 - **`CORGE_CONFIG`**: `CoreConfig` singleton initialized from `process.env.GCP_PROJECT!` and `region = 'me-central1'`.
 
 #### Functions in `src/config.ts`
@@ -670,11 +672,14 @@ export interface CoreConfig {
   }
   models: {
     vertex: string                    // 'claude-haiku-5-5'
-    vertexExpert: string              // 'claude-sonnet-4-5'
+    vertexExpert: string              // 'claude-sonnet-5-5'
+    vertexFlash: string               // 'gemini-3.5-flash-lite'
     vertexEmbedding: string           // 'text-embedding-005'
     vertexLocation: string            // 'global'
-    mistralOcr: string                // 'mistral-ocr-latest'
-    jev: string                       // 'jev-latest'
+    decisions: string                 // 'gemini-decision-1'
+    docAiLocation: string             // 'eu'
+    docAiProcessorDisplayName: string // 'corge-ocr'
+    docAiProcessorId: string          // '' (auto-resolved/created by displayName)
     defaultAgentMaxSteps: number      // 8
   }
   limits: {
@@ -688,12 +693,14 @@ export interface CoreConfig {
     httpUser: RateLimitSpec           // { max: 300, windowMs: 60_000, keyBy: 'user' }
     httpIp: RateLimitSpec             // { max: 60, windowMs: 60_000, keyBy: 'ip' }
     buckets: {
-      mistral: { windowMs: number; max: number }    // 60s, 1250
-      jev: { windowMs: number; max: number }        // 60s, 1200
+      docai: { windowMs: number; max: number }      // 60s, 1800
+      decisions: { windowMs: number; max: number }  // 60s, 1500
       ai: { windowMs: number; max: number }         // 60s, 2000
       workflows: { windowMs: number; max: number }  // 1s, 500
       firestore: { windowMs: number; max: number }  // 1s, 500
       storage: { windowMs: number; max: number }    // 1s, 1000
+      emails: { windowMs: number; max: number }     // 1s, 100
+      payments: { windowMs: number; max: number }   // 1s, 100
     }
   }
   auth: {
@@ -729,7 +736,7 @@ export interface CoreConfig {
 - **`fileScanError`**: `z.object({ status: z.literal('unparseable'), reason: unparseableReason, agentHint: z.string(), diagnosticMessage: z.string().optional(), failedAt: z.string() })`
 - **`baseEntrySchemaShape`** *(Tier 4: File-Private)*: `{ id: entryId, deleted: z.boolean().default(false), createdAt: z.date(), updatedAt: z.date() }`
 - **`coreCollections`** *(Tier 3: Module Export)*: Built-in collections registered via `defineCollections`:
-  1. `chat`: `{ userId, agentId, title, model, messageCount, summary, activeGenerationId }`, `1:N` on `userId`, `sortByUpdated: true`
+  1. `chat`: `{ userId, agentId, title, model, messageCount, summary, activeGenerationId, attachmentRefs }`, `1:N` on `userId`, `sortByUpdated: true`
   2. `file`: `{ id: fileRef, shaSum, fileName, contentType, size, scan, scanError, userId }`, `1:N` on `userId`
   3. `user_auth_meta`: `{ email, emailVerified, name, avatarUrl, recoveryEmail, recoveryEmailVerified, linkedProviders, providerKeys }`, `1:1` on `id`
   4. `auth_tokens`: `{ userId, purpose, targetEmail, tokenHash, urlTokenHash, attempts, expiresAt, consumedAt }`, `1:N` on `userId`
@@ -994,19 +1001,19 @@ Exports `coreFilesRoutes` (`Tier 3: Module Export`) mounted into `RouterService.
 
 ### 8.1 [`src/ai/schema.ts`](file:///Users/nikdelvin/Work/bso-ai/src/ai/schema.ts)
 
-Defines `JevQuestion`, `DecideResult`, `VisionOptions`, `VisionResult`, `AiGenerateOptions<O>`, and `AiGenerateResult<O>`.
+Defines `DecisionQuestion`, `DecisionAnswer`, `DecideResult`, `VisionOptions`, `VisionResult`, `AiGenerateOptions<O>`, `AiGenerateResult<O>`, `DocAiProcessResponse`, and `GeminiDecisionsWireResponse`.
 
 ---
 
 ### 8.2 [`src/ai/service.ts`](file:///Users/nikdelvin/Work/bso-ai/src/ai/service.ts) (`class AiService`) & [`src/ai/utils.ts`](file:///Users/nikdelvin/Work/bso-ai/src/ai/utils.ts)
 
-Structured probabilistic reasoning via TypeSafe Jev (`systemOne`), Mistral OCR, Vertex Anthropic Vision fallback, Vertex LLM text/object generation, and Vertex `text-embedding-005` embeddings.
+Structured probabilistic reasoning via Google Gemini Decisions API (`gemini-decision-1` + Vertex `gemini-3.5-flash-lite` fallback), Google Cloud Document AI (`OCR_PROCESSOR`) + single-pass Vertex `gemini-3.5-flash-lite` structured markdown extraction, Vertex Vision fallback, multi-provider Vertex LLM text/object generation (`gemini-*` & `claude-*`), and Vertex `text-embedding-005` embeddings.
 
 #### Helpers (`src/ai/utils.ts`) & Methods on `AiService` (`readonly #corge: Corge`)
-- **`formatOcrPages` & `normalizeUsage`** *(Tier 4: Domain-Internal in `src/ai/utils.ts`)*: Formats Mistral OCR pages into `### Page N\n...` sections, filtering out `'image'` blocks and blocks with `averageContentConfidenceScore < 0.5`.
-- **`languageModel(modelId?)`** (`Tier 1: corge.ai.languageModel`): Returns a cached Vertex Anthropic `LanguageModel` instance.
-- **`decide(state, questions)`** (`Tier 1: corge.ai.decide`): Executes inside `this.#corge.internals.resilience.circuitBreaker('jev', ...)`, acquires `'jev'` limit, calls `TypeSafeClient.systemOne({ state, questions })`, and validates discriminated union responses.
-- **`vision(documentUrl, opts?)`** (`Tier 1: corge.ai.vision`): Executes inside `this.#corge.internals.resilience.circuitBreaker('mistral', primaryFn, fallbackFn)`, acquires `'mistral'` limit, calls `Mistral.ocr.process(..., opts?.signal ? { fetchOptions: { signal: opts.signal } } : undefined)` with automatic `#vertexVisionFallback` and `describeImage` fallback.
+- **`formatDocAiPages`, `toGeminiDecisionQuestions`, `normalizeGeminiDecisionAnswers`, `buildVertexDecideFallbackSpec`, & `normalizeUsage`** *(Tier 4: Domain-Internal in `src/ai/utils.ts`)*: Formats Document AI Protobuf JSON pages (`### Page N\n...`, handling omitted zero `startIndex` and filtering blocks with `confidence < 0.4`), normalizes Gemini Decisions wire contracts, and builds Zod structured fallback schemas.
+- **`languageModel(modelId?)`** (`Tier 1: corge.ai.languageModel`): Returns a cached Vertex Google (`gemini-*`) or Vertex Anthropic (`claude-*`) `LanguageModel` instance.
+- **`decide(state, questions)`** (`Tier 1: corge.ai.decide`): Executes inside `this.#corge.internals.resilience.circuitBreaker('decisions', primaryFn, #vertexDecideFallback)`, acquires `'decisions'` limit, calls `POST https://generativelanguage.googleapis.com/v1beta/decisions` (`x-goog-api-key: GEMINI_API_KEY`), and validates discriminated union answers (`noul`, `choice`, `score`).
+- **`vision(documentUrl, opts?)`** (`Tier 1: corge.ai.vision`): Executes inside `this.#corge.internals.resilience.circuitBreaker('docai', primaryFn, #vertexVisionFallback)`, acquires `'docai'` limit, calls Document AI `:process` (`imagelessMode: true`, `fromStart: 30` on PDFs), extracts structured JSON from OCR markdown via `#extractAnnotationFromMarkdown` (`vertexFlash` `Output.object`) when `opts?.schema` is supplied, and falls back to `describeImage` for textless images.
 - **`generate(promptOrMessages, opts?)`** (`Tier 1: corge.ai.generate`): Executes inside `this.#corge.internals.resilience.circuitBreaker('vertex', ...)`, acquires `'ai'` limit, and calls `generateText` on `this.languageModel(model)` with optional `Output.object({ schema })`.
 - **`embed(text)`** (`Tier 1: corge.ai.embed`): Returns `null` if `text.trim().length < 15`; otherwise executes inside `this.#corge.internals.resilience.circuitBreaker('vertex', ...)`, acquires `'ai'` limit, and calls `embed()` on Vertex `text-embedding-005` (`768` dimensions, `AbortSignal.timeout(15_000)`).
 
@@ -1051,7 +1058,7 @@ Structured probabilistic reasoning via TypeSafe Jev (`systemOne`), Mistral OCR, 
     types: AttachmentTypesMap = registeredAttachmentTypes
   ): Record<string, unknown> | undefined
   ```
-- **Contract**: Converts `types[type].schema` into a JSON Schema object via `z.toJSONSchema(types[type]!.schema, { io: 'output' })` for Mistral OCR / Vertex Vision structured extraction.
+- **Contract**: Converts `types[type].schema` into a JSON Schema object via `z.toJSONSchema(types[type]!.schema, { io: 'output' })` for `corge.ai.vision` / Vertex structured extraction.
 
 ##### 5. `parseFields`
 - **Tier**: `Tier 3: Module Export`
@@ -1125,10 +1132,10 @@ Structured probabilistic reasoning via TypeSafe Jev (`systemOne`), Mistral OCR, 
   - **`step('read-meta')`**: Reads `file` doc (unless `preloadedFile` was passed by `process`). Returns cached `entry.scan` or throws `NonRetryableError` if `entry.scanError` exists.
   - Checks `#findCrossUserByShaSum(ref, shaSum, type)` for cross-user SHA-256 cache hits.
   - **`getDataUrl`** *(inner lazy closure)*: Downloads file bytes from GCS once and encodes as `data:${contentType};base64,...`.
-  - **`step('ocr')`**: Calls `this.#corge.ai.vision(await getDataUrl(), { fallbackVision: breaker.state === 'OPEN', signal })`.
+  - **`step('ocr')`**: Calls `this.#corge.ai.vision(await getDataUrl(), { fallbackVision: breaker.state === 'OPEN', signal })` (strictly 1 OCR pass per document).
   - **`step('vision')`**: Triggered if OCR returned empty markdown, or if an image was classified as `'other'`.
   - **`step('classify')`**: Calls `this.classify(markdown, types)` when `type` was not pre-specified.
-  - **`step('extract')`**: If `schemaFor(resolvedType, types)` exists, calls `this.#corge.ai.vision(..., { schema })` and validates via `parseFields()`.
+  - **`step('extract')`**: Single-pass structured extraction — when `markdown` is already available and `types[resolvedType]?.schema` exists, calls `this.#corge.ai.generate(markdown, { model: CORGE_CONFIG.models.vertexFlash, schema: types[resolvedType]!.schema, signal })` without re-uploading bytes or running a second OCR pass, then validates via `parseFields()`.
   - Rejects documents with `< 5` chars and `0` extracted fields as `'EMPTY_OR_UNREADABLE'`.
   - **`step('persist')`**: Writes `{ scan, scanError: null }` to `file/{ref}`. On permanent defect, persists `{ scanError: defect, scan: null }` to `file/{ref}` and throws `NonRetryableError`.
 
@@ -1318,7 +1325,7 @@ Session cookies, in-memory token caching (`auth/session.ts`), cross-instance Fir
 - **Tier**: `Tier 4: Private (#method)`
 - **Contract**:
   - `#webSearchTool`: Validates `url` with `isSafePublicUrl(url)` (falling back to DuckDuckGo HTML search if `url` is absent/unsafe) and streams up to `6,000` chars (URL) or `4,000` chars (search) via Jina Reader (`https://r.jina.ai/${target}`).
-  - `#createReasoningExpertTool`: Delegates complex multi-constraint reasoning problems to `ctx.corge.ai.generate(..., { schema: ReasoningExpertOutputDto, model: CORGE_CONFIG.models.vertexExpert ?? 'claude-sonnet-4-5', signal: ctx.abortSignal })`.
+  - `#createReasoningExpertTool`: Delegates complex multi-constraint reasoning problems to `ctx.corge.ai.generate(..., { schema: ReasoningExpertOutputDto, model: CORGE_CONFIG.models.vertexExpert ?? 'claude-sonnet-5-5', signal: ctx.abortSignal })`.
   - `#buildAgentToolsForTurn`: Resolves `toolKeys` into AI SDK `ToolSet` entries, wrapping every workflow tool execution inside `runWithCorge(coreState, ...)` and stripping `FORBIDDEN_TOOL_SCHEMA_KEYS`.
   - `#resolveStepActiveTools`: Implements phased tool exposure via `agent.toolPresets` (`stepNumber === 0` exposes `discovery` + `workflow`; `stepNumber > 0` narrows to `workflow`).
 
@@ -1484,7 +1491,7 @@ Defines `errorBodySchema` (`corge.schemas.errorBodySchema`), `ErrorBody`, `Durat
 
 #### 2. `ResilienceService` (`corge.internals.resilience.*`)
 - **`singleflight(key, fn, opts?)`** (`Tier 2: corge.internals.resilience.singleflight`): Coalesces concurrent promises by `tenant:${this.#corge.userId}:${key}` (default) or `global:${key}` (executed inside a neutral admin `runWithCorge` scope so caller ALS state never leaks).
-- **`acquireLimit(bucket, cost?)`, `chargeLimit(bucket, extra)`, `syncLimit(bucket, remaining, max)`** (`Tier 2 & Tier 3`): Sliding-window token-bucket rate limiter (`RateLimiter`) per upstream bucket (`mistral`, `jev`, `ai`, `workflows`, `firestore`, `storage`).
+- **`acquireLimit(bucket, cost?)`, `chargeLimit(bucket, extra)`, `syncLimit(bucket, remaining, max)`** (`Tier 2 & Tier 3`): Sliding-window token-bucket rate limiter (`RateLimiter`) per upstream bucket (`docai`, `decisions`, `ai`, `workflows`, `firestore`, `storage`, `emails`, `payments`).
 - **`acquireHttpLimit(key, max, windowMs)`** (`Tier 2: corge.internals.resilience.acquireHttpLimit`): Fixed-window counter per user/IP key (capped at 5,000 active keys); throws `429 RATE_LIMITED` with `Retry-After` header when `count >= max`.
 - **`circuitBreaker(breakerKey, fn, fallbackFn?, opts?)`, `getCircuitBreakerState(breakerKey, isDev?)`, `resetCircuitBreaker(breakerKey, isDev?)`** (`Tier 2: corge.internals.resilience.*`): Distributed 3-state (`CLOSED` / `OPEN` / `HALF_OPEN`) circuit breaker backed by `_system/breaker_${breakerKey}` in Firestore with a `3,000ms` local cache and automatic fallback execution.
 

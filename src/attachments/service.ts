@@ -1,4 +1,4 @@
-import type { JevQuestion } from '../ai'
+import { DEFAULT_EXTRACTION_PROMPT, type DecisionQuestion } from '../ai'
 import type { SelectModel } from '../db'
 import { fileScan, fileScanError, type FileRef, type FileScan, type FileScanError } from '../files'
 import type { Corge } from '../index'
@@ -79,7 +79,7 @@ export class AttachmentsService {
   ): Promise<{ attachmentType: string; confidence: number }> => {
     const entries = Object.entries(types)
     if (!entries.length) return { attachmentType: 'other', confidence: 1 }
-    const questions: Record<string, JevQuestion> = {
+    const questions: Record<string, DecisionQuestion> = {
       documentType: {
         type: 'choice',
         instructions:
@@ -145,13 +145,34 @@ export class AttachmentsService {
     }
 
     let fields: Record<string, unknown> = {}
-    const schema = resolvedType && resolvedType !== 'other' ? schemaFor(resolvedType, types) : undefined
-    if (schema && resolvedType) {
-      const extract = await step('extract', ({ signal }) =>
-        this.#wrapScanStep(async () => this.#corge.ai.vision(await getDataUrl(), { schema, signal }), onDefect)
-      )
-      fields = parseFields(resolvedType, extract.annotation, types)
-      if (!markdown) markdown = extract.markdown
+    const typeSpec = resolvedType && resolvedType !== 'other' ? types[resolvedType] : undefined
+    if (typeSpec && resolvedType) {
+      if (markdown) {
+        const extracted = await step('extract', ({ signal }) =>
+          this.#wrapScanStep(
+            async () =>
+              (
+                await this.#corge.ai.generate(markdown, {
+                  model: this.#corge.config.models.vertexFlash,
+                  system: DEFAULT_EXTRACTION_PROMPT,
+                  schema: typeSpec.schema,
+                  signal
+                })
+              ).output as Record<string, unknown>,
+            onDefect
+          )
+        )
+        fields = parseFields(resolvedType, extracted, types)
+      } else {
+        const schema = schemaFor(resolvedType, types)
+        if (schema) {
+          const extract = await step('extract', ({ signal }) =>
+            this.#wrapScanStep(async () => this.#corge.ai.vision(await getDataUrl(), { schema, signal }), onDefect)
+          )
+          fields = parseFields(resolvedType, extract.annotation, types)
+          markdown = extract.markdown
+        }
+      }
     }
 
     if (markdown.trim().length < 5 && Object.keys(fields).length === 0) {

@@ -19,8 +19,7 @@ export type RbacConfig = {
 
 export const SECRET_NAMES = [
   'SDK_API_KEY',
-  'MISTRAL_API_KEY',
-  'TYPESAFE_API_KEY',
+  'GEMINI_API_KEY',
   'JINA_API_KEY',
   'WEB_API_KEY'
 ] as const
@@ -45,8 +44,7 @@ export const PAYMENT_SECRET_NAMES = [
 
 export interface AppBindings {
   SDK_API_KEY: string
-  MISTRAL_API_KEY: string
-  TYPESAFE_API_KEY: string
+  GEMINI_API_KEY: string
   JINA_API_KEY: string
   WEB_API_KEY: string
   RESEND_API_KEY: string
@@ -218,10 +216,13 @@ export interface CoreConfig {
   models: {
     vertex: string
     vertexExpert: string
+    vertexFlash: string
     vertexEmbedding: string
     vertexLocation: string
-    mistralOcr: string
-    jev: string
+    decisions: string
+    docAiLocation: string
+    docAiProcessorDisplayName: string
+    docAiProcessorId: string
     defaultAgentMaxSteps: number
   }
   limits: {
@@ -235,8 +236,8 @@ export interface CoreConfig {
     httpUser: RateLimitSpec
     httpIp: RateLimitSpec
     buckets: {
-      mistral: { windowMs: number; max: number }
-      jev: { windowMs: number; max: number }
+      docai: { windowMs: number; max: number }
+      decisions: { windowMs: number; max: number }
       ai: { windowMs: number; max: number }
       workflows: { windowMs: number; max: number }
       firestore: { windowMs: number; max: number }
@@ -330,11 +331,14 @@ export const CORGE_CONFIG: CoreConfig = {
   },
   models: {
     vertex: 'claude-haiku-5-5',
-    vertexExpert: 'claude-sonnet-4-5',
+    vertexExpert: 'claude-sonnet-5-5',
+    vertexFlash: 'gemini-3.5-flash-lite',
     vertexEmbedding: 'text-embedding-005',
     vertexLocation: 'global',
-    mistralOcr: 'mistral-ocr-latest',
-    jev: 'jev-latest',
+    decisions: 'gemini-decision-1',
+    docAiLocation: 'eu',
+    docAiProcessorDisplayName: 'corge-ocr',
+    docAiProcessorId: '',
     defaultAgentMaxSteps: 8
   },
   limits: {
@@ -348,8 +352,8 @@ export const CORGE_CONFIG: CoreConfig = {
     httpUser: { max: 300, windowMs: 60_000, keyBy: 'user' },
     httpIp: { max: 60, windowMs: 60_000, keyBy: 'ip' },
     buckets: {
-      mistral: { windowMs: 60_000, max: 1250 },
-      jev: { windowMs: 60_000, max: 1200 },
+      docai: { windowMs: 60_000, max: 1800 },
+      decisions: { windowMs: 60_000, max: 2000 },
       ai: { windowMs: 60_000, max: 2000 },
       workflows: { windowMs: 1_000, max: 500 },
       firestore: { windowMs: 1_000, max: 500 },

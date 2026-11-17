@@ -144,7 +144,7 @@ export class ChatService {
           `Problem:\n${problemStatement}\n\nConstraints & Context:\n${constraintsAndContext}`,
           {
             schema: ReasoningExpertOutputDto,
-            model: CORGE_CONFIG.models.vertexExpert ?? 'claude-sonnet-4-5',
+            model: CORGE_CONFIG.models.vertexExpert ?? 'claude-sonnet-5-5',
             signal: ctx.abortSignal
           }
         )
