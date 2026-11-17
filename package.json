@@ -1,6 +1,6 @@
 {
   "name": "@corgelabs/corge",
-  "version": "2.0.10",
+  "version": "3.0.0",
   "description": "The all-in-one AI & SaaS backend built for vibecoding. Auth, DB, Storage, Payments, Emails, Multimodal AI, Hybrid RAG, MCP & Durable Workflows in one zero-glue TypeScript SDK.",
   "keywords": [
     "vibecoding",
