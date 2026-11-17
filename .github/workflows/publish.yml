@@ -45,7 +45,12 @@ jobs:
           else
             BUMP="patch"
           fi
+          BURNED=$(curl -sf "https://registry.npmjs.org/@corgelabs%2fcorge" | node -pe 'Object.keys(JSON.parse(fs.readFileSync(0,"utf8")).time||{}).join("\n")' || true)
           NEW_VER=$(npm version "$BUMP" --no-git-tag-version)
+          while [ -n "$BURNED" ] && echo "$BURNED" | grep -qx "${NEW_VER#v}"; do
+            echo "Skipping tombstoned npm version ${NEW_VER#v}..."
+            NEW_VER=$(npm version patch --no-git-tag-version)
+          done
           echo "version=$NEW_VER" >> "$GITHUB_OUTPUT"
           echo "Bumped $PUBLISHED -> $NEW_VER ($BUMP)"
       - run: npm run build
