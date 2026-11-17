@@ -100,7 +100,11 @@ export type EraseUserInput = z.input<typeof eraseUserInput>
 export type EraseUserOutput = z.infer<typeof eraseUserOutput>
 
 export const customTokenBody = z
-  .object({ uid: entryId.refine((id) => id !== CORGE_CONFIG.auth.adminUserId, 'Reserved UID').optional() })
+  .object({
+    uid: entryId.refine((id) => id !== CORGE_CONFIG.auth.adminUserId, 'Reserved UID').optional(),
+    role: z.enum(['user', 'admin']).optional(),
+    exchangeToken: z.boolean().optional()
+  })
   .default({})
 export const sessionBody = z.object({ idToken: z.string().min(1) })
 export const emailSignUpBody = z.object({

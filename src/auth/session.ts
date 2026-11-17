@@ -216,7 +216,9 @@ export class AuthSessionEngine {
         const auth = this.getAuth()
         const d = isCookie
           ? await auth.verifySessionCookie(token, checkRevoked)
-          : await auth.verifyIdToken(token, checkRevoked)
+          : await auth
+              .verifyIdToken(token, checkRevoked)
+              .catch(() => auth.verifySessionCookie(token, checkRevoked))
         const role = resolveTokenRole(d as unknown as Record<string, unknown>, d.uid)
         const emailVerified = Boolean(d.email_verified)
         this.setTokenCache(
@@ -332,11 +334,52 @@ export class AuthSessionEngine {
   }
 
   mintCustomToken = async (
-    uid = `anon_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`
-  ): Promise<{ uid: string; customToken: string }> => ({
-    uid,
-    customToken: await this.getAuth().createCustomToken(uid)
-  })
+    uid = `anon_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`,
+    opts?: { role?: 'user' | 'admin'; exchangeToken?: boolean }
+  ): Promise<{
+    uid: string
+    customToken: string
+    role?: 'user' | 'admin'
+    idToken?: string
+    token?: string
+    expiresInSeconds?: number
+  }> => {
+    const auth = this.getAuth()
+    const customToken = await auth.createCustomToken(uid, opts?.role ? { role: opts.role } : undefined)
+    if (!opts?.exchangeToken) {
+      return { uid, customToken, ...(opts?.role ? { role: opts.role } : {}) }
+    }
+    const webApiKey = this.#corge.env.WEB_API_KEY
+    if (!webApiKey) {
+      return this.#corge.errors.httpError(500, 'WEB_API_KEY is required for server-side token exchange', 'CONFIG_ERROR')
+    }
+    const res = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=${encodeURIComponent(webApiKey)}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: customToken, returnSecureToken: true }),
+        signal: AbortSignal.timeout(10_000)
+      }
+    )
+    if (!res.ok) {
+      return this.#corge.errors.httpError(502, `IdentityToolkit token exchange HTTP ${res.status}`, 'UPSTREAM_ERROR')
+    }
+    const { idToken } = (await res.json()) as { idToken?: string }
+    if (!idToken) {
+      return this.#corge.errors.httpError(502, 'IdentityToolkit returned empty idToken', 'UPSTREAM_ERROR')
+    }
+    const expiresInMs = CORGE_CONFIG.auth.sessionExpiresInMs
+    const sessionToken = await auth.createSessionCookie(idToken, { expiresIn: expiresInMs })
+    return {
+      uid,
+      role: opts.role ?? 'user',
+      customToken,
+      idToken,
+      token: sessionToken,
+      expiresInSeconds: Math.floor(expiresInMs / 1000)
+    }
+  }
 
   createSession = async (
     idToken: string,

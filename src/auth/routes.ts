@@ -48,10 +48,18 @@ export const coreAuthRoutes = {
       userId: EntryId
       role: DbRole
     }) => {
-      if (input.uid && role !== 'admin' && userId !== CORGE_CONFIG.auth.adminUserId) {
-        return corge.errors.httpError(403, 'Admin privileges required to mint token for specific UID', 'FORBIDDEN')
+      const isAdmin = role === 'admin' || userId === CORGE_CONFIG.auth.adminUserId
+      if ((input.uid || input.role || input.exchangeToken) && !isAdmin) {
+        return corge.errors.httpError(
+          403,
+          'Admin privileges required to mint specific UID/role or exchange tokens',
+          'FORBIDDEN'
+        )
       }
-      return corge.internals.auth.mintCustomToken(input.uid)
+      return corge.internals.auth.mintCustomToken(input.uid, {
+        ...(input.role ? { role: input.role } : {}),
+        ...(input.exchangeToken ? { exchangeToken: true } : {})
+      })
     }
   },
   'auth.session.create': {
