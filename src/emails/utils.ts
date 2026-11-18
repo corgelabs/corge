@@ -298,38 +298,6 @@ export const postResendBatch = async (
   return { externalIds: reqs.map((r, idx) => items[idx]?.id || `re_${r.emailId}`) }
 }
 
-export const postFirebaseOobCode = async (
-  apiKey: string,
-  customToken: string | undefined,
-  payload: TransactionalEmailPayload,
-  continueUrl: string
-): Promise<void> => {
-  const postToolkit = async (endpoint: string, body: Record<string, unknown>) => {
-    const res = await fetch(`https://identitytoolkit.googleapis.com/v1/${endpoint}?key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(10_000)
-    })
-    return { ok: res.ok, data: (await res.json().catch(() => ({}))) as Record<string, unknown> }
-  }
-  let body: Record<string, unknown>
-  if (payload.purpose === 'verify_email') {
-    if (!customToken) return
-    const { ok, data } = await postToolkit('accounts:signInWithCustomToken', {
-      token: customToken,
-      returnSecureToken: true
-    })
-    if (!ok || typeof data.idToken !== 'string') return
-    body = { requestType: 'VERIFY_EMAIL', idToken: data.idToken }
-  } else if (payload.purpose === 'reset_password') {
-    body = { requestType: 'PASSWORD_RESET', email: payload.to }
-  } else {
-    body = { requestType: 'EMAIL_SIGNIN', email: payload.to, continueUrl, canHandleCodeInApp: true }
-  }
-  await postToolkit('accounts:sendOobCode', body)
-}
-
 export const verifyResendWebhookHmac = (
   rawBody: string,
   headers: Record<string, string | undefined>,

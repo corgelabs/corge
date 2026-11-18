@@ -9,8 +9,9 @@ import { serve, type ServerType } from '@hono/node-server'
 import { z } from 'zod'
 import { agents } from '@config/agents'
 import { routes as customRoutes } from '@config/routes'
-import { Corge, corge, loadGcpSecrets, useCorge } from '@corgelabs/corge'
+import { Corge, corge, useCorge } from '@corgelabs/corge'
 import { devApp } from '@app-entry'
+import { loadGcpSecrets } from '../src/cli/env'
 
 type AttachmentTypesMap = corge.types.AttachmentTypesMap
 type RouteConfig<I = any, O = any, P = Record<string, string>, Q = Record<string, string>> =
@@ -495,7 +496,7 @@ describe('1. Auth & RBAC (/api/auth/*, /api/routes)', () => {
   })
 
   test('POST /api/auth/users/block — block user, verify 401 on session, then unblock', async () => {
-    const blockRes = await apiJson<{ userId: string; blocked: boolean; deleted: boolean }>(
+    const blockRes = await apiJson<{ userId: string; blocked: boolean }>(
       '/api/auth/users/block',
       {
         method: 'POST',
@@ -506,7 +507,7 @@ describe('1. Auth & RBAC (/api/auth/*, /api/routes)', () => {
       'block'
     )
     assert.equal(blockRes.status, 200)
-    assert.deepEqual(blockRes.data, { userId: testAuthUserId, blocked: true, deleted: true })
+    assert.deepEqual(blockRes.data, { userId: testAuthUserId, blocked: true })
 
     const blockedSessionRes = await apiFetch(
       '/api/auth/session',
@@ -515,7 +516,7 @@ describe('1. Auth & RBAC (/api/auth/*, /api/routes)', () => {
     )
     assert.equal(blockedSessionRes.status, 401)
 
-    const unblockRes = await apiJson<{ userId: string; blocked: boolean; deleted: boolean }>(
+    const unblockRes = await apiJson<{ userId: string; blocked: boolean }>(
       '/api/auth/users/block',
       {
         method: 'POST',
@@ -526,7 +527,7 @@ describe('1. Auth & RBAC (/api/auth/*, /api/routes)', () => {
       'unblock'
     )
     assert.equal(unblockRes.status, 200)
-    assert.deepEqual(unblockRes.data, { userId: testAuthUserId, blocked: false, deleted: false })
+    assert.deepEqual(unblockRes.data, { userId: testAuthUserId, blocked: false })
   })
 
   test('POST /api/auth/custom-token, POST /api/auth/session & GET /api/auth/session — custom token RBAC, ID token & session cookie', async () => {
@@ -656,7 +657,7 @@ describe('1. Auth & RBAC (/api/auth/*, /api/routes)', () => {
     assert.equal(sendVerifyRes.status, 200)
     assert.equal(sendVerifyRes.data.sent, true)
 
-    const verifyPayload1 = corge.internals.auth.getLastDevEmail(testEmail, 'verify_email')
+    const verifyPayload1 = corge.internals.emails.getLastDevEmail(testEmail, 'verify_email')
     assert.ok(verifyPayload1, 'Expected dev email outbox to capture verify_email payload')
     assert.match(verifyPayload1.code, /^\d{6}$/)
 
@@ -708,7 +709,7 @@ describe('1. Auth & RBAC (/api/auth/*, /api/routes)', () => {
       'send-verify-2'
     )
     assert.equal(resendVerifyRes.status, 200)
-    const verifyPayload2 = corge.internals.auth.getLastDevEmail(testEmail, 'verify_email')!
+    const verifyPayload2 = corge.internals.emails.getLastDevEmail(testEmail, 'verify_email')!
 
     const okVerifyRes = await apiJson<{ verified: boolean; userId: string }>(
       '/api/auth/email/verify',
@@ -898,7 +899,7 @@ describe('1. Auth & RBAC (/api/auth/*, /api/routes)', () => {
     assert.equal(setRecoveryRes.data.recoveryEmail, recoveryEmail)
     assert.equal(setRecoveryRes.data.recoveryEmailVerified, false)
 
-    const recoveryVerifyPayload = corge.internals.auth.getLastDevEmail(recoveryEmail, 'verify_recovery_email')
+    const recoveryVerifyPayload = corge.internals.emails.getLastDevEmail(recoveryEmail, 'verify_recovery_email')
     assert.ok(recoveryVerifyPayload)
 
     const verifyRecoveryRes = await apiJson<{
@@ -943,7 +944,7 @@ describe('1. Auth & RBAC (/api/auth/*, /api/routes)', () => {
       'forgot-password'
     )
     assert.equal(forgotRes.status, 200)
-    const resetPayload = corge.internals.auth.getLastDevEmail(testEmail, 'reset_password')
+    const resetPayload = corge.internals.emails.getLastDevEmail(testEmail, 'reset_password')
     assert.ok(resetPayload)
 
     const resetPasswordVal = 'ResetPassword456!'
@@ -986,7 +987,7 @@ describe('1. Auth & RBAC (/api/auth/*, /api/routes)', () => {
     assert.equal(initiateRecoveryRes.status, 200)
     assert.equal(initiateRecoveryRes.data.initiated, true)
 
-    const accountRecoveryPayload = corge.internals.auth.getLastDevEmail(recoveryEmail, 'account_recovery')
+    const accountRecoveryPayload = corge.internals.emails.getLastDevEmail(recoveryEmail, 'account_recovery')
     assert.ok(accountRecoveryPayload)
 
     const recoveredPrimaryEmail = `recovered-${Date.now()}@test.local`
@@ -1157,20 +1158,16 @@ describe('2. Files CRUD (/api/files, /api/files/:ref)', () => {
 
 describe('3. Route Catalog & Attachment Scanning (/api/routes, /api/scan-attachment)', () => {
   test('GET /api/routes & GET /api/routes?format=md — verify all corge/domain routes & deterministic API_CONTRACT.md introspection', async () => {
-    const catalogRes = await apiJson<RoutesIntrospectionResponse | DiscoveredRouteItem[]>('/api/routes', {}, true)
+    const catalogRes = await apiJson<RoutesIntrospectionResponse>('/api/routes', {}, true)
     assert.equal(catalogRes.status, 200)
 
-    const routeList: DiscoveredRouteItem[] = Array.isArray(catalogRes.data)
-      ? catalogRes.data
-      : (catalogRes.data.routes as DiscoveredRouteItem[])
-    if (!Array.isArray(catalogRes.data)) {
-      assert.equal(catalogRes.data.appName, CORGE_CONFIG.appName)
-      assert.ok(catalogRes.data.collections && 'chat' in catalogRes.data.collections)
-      assert.ok('user_auth_meta' in catalogRes.data.collections!)
-      assert.ok('auth_tokens' in catalogRes.data.collections!)
-      assert.ok('email_log' in catalogRes.data.collections!)
-      assert.ok('email_suppression' in catalogRes.data.collections!)
-    }
+    const routeList = catalogRes.data.routes as DiscoveredRouteItem[]
+    assert.equal(catalogRes.data.appName, CORGE_CONFIG.appName)
+    assert.ok(catalogRes.data.collections && 'chat' in catalogRes.data.collections)
+    assert.ok('user_auth_meta' in catalogRes.data.collections!)
+    assert.ok('auth_tokens' in catalogRes.data.collections!)
+    assert.ok('email_log' in catalogRes.data.collections!)
+    assert.ok('email_suppression' in catalogRes.data.collections!)
 
     const registeredIds = new Set(routeList.map((r) => r.id))
     for (const coreId of Object.keys(corge.internals.context.routeDefaults)) {
@@ -1358,10 +1355,10 @@ describe('4. Batch Attachment Processing & Async Task Lifecycle (/api/process-at
     assert.equal(typeof partialErrRes.data.attachments[1]?.error, 'string')
   })
 
-  test('POST /api/process-attachments?async=true — async dispatch (202 Accepted)', async () => {
+  test('POST /api/process-attachments?wait=false — async dispatch (202 Accepted)', async () => {
     const allRefs = fixtures.map((f) => uploadedRefs.get(f.type)!)
     const asyncRes = await apiJson<{ taskId: string; status: string; pollUrl: string }>(
-      '/api/process-attachments?async=true',
+      '/api/process-attachments?wait=false',
       {
         method: 'POST',
         headers: { 'content-type': 'application/json', prefer: 'respond-async' },
@@ -1905,7 +1902,7 @@ describe('9. Corge SDK Primitives, Sign-Out, GDPR Erase & Zero-Leftover Verifica
           return { passportNumber: 'P123', classifyType: classify.type }
         })
       } catch (e) {
-        await step.onError()
+        await step.compensate()
         throw e
       }
     }
@@ -2206,9 +2203,16 @@ describe('9. Corge SDK Primitives, Sign-Out, GDPR Erase & Zero-Leftover Verifica
       'withCircuitBreaker',
       'getDb',
       'getBucket',
-      'runWithCorge'
+      'runWithCorge',
+      'CORGE_CONFIG',
+      'getSecrets',
+      'loadGcpSecrets'
     ]) {
-      assert.equal(internalSymbol in corgeBarrel, false, `@corge must not leak internal symbol ${internalSymbol}`)
+      assert.equal(
+        internalSymbol in corgeBarrel,
+        false,
+        `@corgelabs/corge must not leak internal symbol ${internalSymbol}`
+      )
     }
     assert.equal(Object.keys(corge).includes('internals'), false, 'corge.internals must be non-enumerable')
     assert.deepEqual(
@@ -2357,14 +2361,14 @@ describe('9. Corge SDK Primitives, Sign-Out, GDPR Erase & Zero-Leftover Verifica
             name: 'Free Plan',
             interval: 'free',
             amount: 0,
-            quotas: { aiTokens: 100_000 }
+            quota: { aiTokens: 100_000 }
           },
           pro: {
             name: 'Pro Plan',
             interval: 'month',
             amount: 2_900,
             currency: 'usd',
-            quotas: { aiTokens: 1_000_000, overage: { enabled: true } }
+            quota: { aiTokens: 1_000_000, overage: { enabled: true } }
           }
         })
       )
@@ -2486,7 +2490,7 @@ describe('9. Corge SDK Primitives, Sign-Out, GDPR Erase & Zero-Leftover Verifica
     const signOutRes = await apiFetch('/api/auth/sign-out', {
       method: 'POST',
       headers: userHeaders({ 'content-type': 'application/json' }),
-      body: JSON.stringify({ deleteUser: true })
+      body: JSON.stringify({})
     })
     assert.equal(signOutRes.status, 200)
 

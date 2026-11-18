@@ -92,7 +92,7 @@ export class AuthService {
   blockUser = async (
     userId: EntryId = this.#corge.userId,
     blocked = true
-  ): Promise<{ userId: EntryId; blocked: boolean; deleted: boolean }> => {
+  ): Promise<{ userId: EntryId; blocked: boolean }> => {
     const auth = this.#session.getAuth()
     this.#session.evictUserTokens(userId)
     await Promise.all([
@@ -102,7 +102,7 @@ export class AuthService {
       ...(blocked ? [auth.revokeRefreshTokens(userId).catch(() => {})] : []),
       auth.updateUser(userId, { disabled: blocked }).catch(() => {})
     ])
-    return { userId, blocked, deleted: blocked }
+    return { userId, blocked }
   }
 
   #triggerFirestoreBackup = async (userId: string): Promise<string> => {
@@ -164,7 +164,6 @@ export class AuthService {
       setTokenCache: this.#session.setTokenCache,
       recordRevocation: this.#session.recordRevocation,
       syncRevocations: this.#session.syncRevocations,
-      getLastDevEmail: this.#recovery.getLastDevEmail,
       registerTestOidcPublicKey: this.#oidc.registerTestOidcPublicKey,
       get sessionCookie() {
         return CORGE_CONFIG.auth.sessionCookie

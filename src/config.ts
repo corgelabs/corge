@@ -75,7 +75,7 @@ export interface RateLimitSpec {
 
 export type RateLimitConfig = RateLimitSpec | false
 
-export type EmailProvider = 'sendgrid' | 'resend' | 'firebase'
+export type EmailProvider = 'sendgrid' | 'resend'
 
 export type AuthTokenPurpose =
   | 'verify_email'
@@ -173,7 +173,7 @@ export type DeepPartial<T> = {
   [K in keyof T]?: T[K] extends object ? (T[K] extends (...args: any[]) => any ? T[K] : DeepPartial<T[K]>) : T[K]
 }
 
-export interface CoreConfig {
+export interface CorgeConfig {
   appName: string
   gcpProject: string
   region: string
@@ -279,7 +279,7 @@ const gcpProject = resolveGcpProject()
 const region = 'me-central1'
 const defaultWebBaseUrl = `https://${gcpProject || 'app'}.web.app`
 
-export const CORGE_CONFIG: CoreConfig = {
+export const CORGE_CONFIG: CorgeConfig = {
   appName: gcpProject,
   gcpProject,
   region,
@@ -299,7 +299,7 @@ export const CORGE_CONFIG: CoreConfig = {
     userContextTimeoutMs: 3_500
   },
   serviceAccount: `firebase-adminsdk-fbsvc@${gcpProject}.iam.gserviceaccount.com`,
-  computeAccount: '68329189121-compute@developer.gserviceaccount.com',
+  computeAccount: '',
   workerUris: {
     prod: `https://${region}-${gcpProject}.cloudfunctions.net/${gcpProject}-tasks`,
     dev: `https://${region}-${gcpProject}.cloudfunctions.net/${gcpProject}-tasks-dev`
@@ -435,7 +435,7 @@ const mergeDeep = <T extends Record<string, any>>(target: T, source?: DeepPartia
   return target
 }
 
-export const defineConfig = (overrides?: DeepPartial<CoreConfig>): CoreConfig => {
+export const defineConfig = (overrides?: DeepPartial<CorgeConfig>): CorgeConfig => {
   if (overrides?.gcpProject && overrides.gcpProject !== CORGE_CONFIG.gcpProject) {
     const p = overrides.gcpProject
     const r = overrides.region ?? CORGE_CONFIG.region

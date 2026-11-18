@@ -41,8 +41,8 @@ export const runTestSuite = async (baseUrl?: string, cwd = process.cwd()): Promi
   process.exitCode = res.status ?? 1
 }
 
-export const linkCorge = (targetPath = '/Users/nikdelvin/corgelabs/corge', cwd = process.cwd()): void => {
-  const resolvedTarget = resolve(cwd, targetPath)
+export const linkCorge = (targetPath?: string, cwd = process.cwd()): void => {
+  const resolvedTarget = targetPath ? resolve(cwd, targetPath) : getCorgeRootDir()
   const linkDest = join(cwd, 'node_modules/@corgelabs/corge')
   mkdirSync(dirname(linkDest), { recursive: true })
   rmSync(linkDest, { recursive: true, force: true })
@@ -78,7 +78,6 @@ export const initConsumerProject = (cwd = process.cwd()): void => {
         extends: '@corgelabs/corge/tsconfig.base.json',
         compilerOptions: {
           paths: {
-            '@corge': ['./node_modules/@corgelabs/corge/dist/index.d.ts'],
             '@routes/*': ['./src/routes/*'],
             '@services/*': ['./src/services/*'],
             '@utils/*': ['./src/utils/*'],
@@ -97,19 +96,7 @@ export const initConsumerProject = (cwd = process.cwd()): void => {
     [
       "import { corge } from '@corgelabs/corge'",
       '',
-      'export const corgeApp = corge.createApp({})',
-      '',
-      'export const {',
-      '  createApp,',
-      '  app,',
-      '  devApp,',
-      '  workflowRegistry,',
-      '  httpHandler,',
-      '  devHttpHandler,',
-      '  tasksHandler,',
-      '  devTasksHandler,',
-      '  functions',
-      '} = corgeApp',
+      'export const { app, devApp, functions } = corge.createApp({})',
       ''
     ].join('\n')
   )

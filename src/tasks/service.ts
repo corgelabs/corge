@@ -105,7 +105,7 @@ export class TasksService {
 
     if (outcome.wasWaiting) {
       const wf = this.#worker.getRuntime().registry[outcome.workflowName]
-      const deadline = resolveTaskDeadline(outcome.workflowName, wf?.deadlineSeconds)
+      const deadline = resolveTaskDeadline(wf?.deadlineSeconds)
       if (CORGE_CONFIG.tasks.useCloudTasks) {
         await this.#watcher.enqueueBatched(
           {

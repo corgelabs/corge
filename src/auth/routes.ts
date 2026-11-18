@@ -36,7 +36,7 @@ const respondWithSession = async (
   return user
 }
 
-export const coreAuthRoutes = {
+export const corgeAuthRoutes = {
   'auth.custom-token': {
     input: customTokenBody,
     handler: async ({
@@ -140,9 +140,9 @@ export const coreAuthRoutes = {
   },
   'auth.sign-out': {
     input: signOutBody,
-    handler: async ({ c, input }: { c: Context<AppEnv>; input: z.infer<typeof signOutBody> }) => {
+    handler: async ({ c }: { c: Context<AppEnv> }) => {
       const cookie = getCookie(c, CORGE_CONFIG.auth.sessionCookie)
-      if (cookie) await corge.internals.auth.revokeSession(cookie, Boolean(input.deleteUser)).catch(() => {})
+      if (cookie) await corge.internals.auth.revokeSession(cookie).catch(() => {})
       deleteCookie(c, CORGE_CONFIG.auth.sessionCookie, { path: '/' })
       return { ok: true }
     }

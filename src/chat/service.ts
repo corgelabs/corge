@@ -194,19 +194,8 @@ export class ChatService {
 
   #resolveStaticSystemPrompt = async (agent: AgentConfig): Promise<string> => {
     const raw =
-      typeof agent.systemPrompt === 'function'
-        ? await agent.systemPrompt({
-            today: 'see dynamic context',
-            userId: 'authenticated-user',
-            env: this.#corge.env
-          })
-        : agent.systemPrompt
-    return raw
-      .replace(/\s*Today is \{\{today\}\}\.?/gi, '')
-      .replace(/\s*Current userId is \{\{userId\}\}\.?/gi, '')
-      .replaceAll('{{today}}', 'see dynamic context')
-      .replaceAll('{{userId}}', 'authenticated-user')
-      .trim()
+      typeof agent.systemPrompt === 'function' ? await agent.systemPrompt({ env: this.#corge.env }) : agent.systemPrompt
+    return raw.trim()
   }
 
   #resolveStepActiveTools = (agent: AgentConfig, allToolNames: string[], stepNumber: number): string[] => {
@@ -288,7 +277,7 @@ export class ChatService {
       stopWhen: stepCountIs(agent.maxSteps ?? CORGE_CONFIG.models.defaultAgentMaxSteps),
       ...(opts?.abortSignal ? { abortSignal: opts.abortSignal } : {}),
       onFinish: async (event) => {
-        const usageObj = (event as { totalUsage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number }; usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number } }).totalUsage ?? event.usage
+        const usageObj = event.totalUsage
         await this.#corge.internals.payments.trackAiUsage({
           userId,
           model: selectedModel,

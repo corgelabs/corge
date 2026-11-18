@@ -18,30 +18,26 @@ export class PaymentsBillingEngine {
     this.#corge = corgeClient
   }
 
-  resolveProvider = (override?: PaymentProvider): PaymentProvider => {
-    if (override) return override
-    const preferred = this.#corge.config.payments.provider
-    const isDev = Boolean(this.#corge.env.isDev)
-    const env = this.#corge.env
-    const hasStripe = Boolean((isDev ? env.STRIPE_SANDBOX_API_KEY : env.STRIPE_API_KEY) || env.STRIPE_API_KEY || env.STRIPE_SANDBOX_API_KEY)
-    const hasDodo = Boolean((isDev ? env.DODO_SANDBOX_API_KEY : env.DODO_API_KEY) || env.DODO_API_KEY || env.DODO_SANDBOX_API_KEY)
-    if (preferred === 'dodo' && !hasDodo && hasStripe) return 'stripe'
-    if (preferred === 'stripe' && !hasStripe && hasDodo) return 'dodo'
-    return preferred
-  }
+  resolveProvider = (override?: PaymentProvider): PaymentProvider =>
+    override ?? this.#corge.config.payments.provider
 
   getCreds = (provider: PaymentProvider) => {
     const isDev = Boolean(this.#corge.env.isDev)
     const cfg = this.#corge.config.payments
     const env = this.#corge.env
     if (provider === 'stripe') {
-      const apiKey = (isDev && env.STRIPE_SANDBOX_API_KEY ? env.STRIPE_SANDBOX_API_KEY : env.STRIPE_API_KEY || env.STRIPE_SANDBOX_API_KEY).trim()
-      const webhookSecret = (isDev && env.STRIPE_SANDBOX_WEBHOOK_SECRET ? env.STRIPE_SANDBOX_WEBHOOK_SECRET : env.STRIPE_WEBHOOK_SECRET || env.STRIPE_SANDBOX_WEBHOOK_SECRET).trim()
+      const apiKey = (isDev ? env.STRIPE_SANDBOX_API_KEY : env.STRIPE_API_KEY).trim()
+      const webhookSecret = (isDev ? env.STRIPE_SANDBOX_WEBHOOK_SECRET : env.STRIPE_WEBHOOK_SECRET).trim()
       return { apiKey, webhookSecret, baseUrl: cfg.stripe.baseUrl, isSyntheticDev: isDev && !apiKey }
     }
-    const apiKey = (isDev && env.DODO_SANDBOX_API_KEY ? env.DODO_SANDBOX_API_KEY : env.DODO_API_KEY || env.DODO_SANDBOX_API_KEY).trim()
-    const webhookSecret = (isDev && env.DODO_SANDBOX_WEBHOOK_SECRET ? env.DODO_SANDBOX_WEBHOOK_SECRET : env.DODO_WEBHOOK_SECRET || env.DODO_SANDBOX_WEBHOOK_SECRET).trim()
-    return { apiKey, webhookSecret, baseUrl: isDev ? cfg.dodo.testBaseUrl : cfg.dodo.liveBaseUrl, isSyntheticDev: isDev && !apiKey }
+    const apiKey = (isDev ? env.DODO_SANDBOX_API_KEY : env.DODO_API_KEY).trim()
+    const webhookSecret = (isDev ? env.DODO_SANDBOX_WEBHOOK_SECRET : env.DODO_WEBHOOK_SECRET).trim()
+    return {
+      apiKey,
+      webhookSecret,
+      baseUrl: isDev ? cfg.dodo.testBaseUrl : cfg.dodo.liveBaseUrl,
+      isSyntheticDev: isDev && !apiKey
+    }
   }
 
   #withBreaker = async <T>(cost: number, fn: () => Promise<T>): Promise<T> => {
@@ -51,11 +47,13 @@ export class PaymentsBillingEngine {
 
   stripeCall = <T = Record<string, any>>(method: string, path: string, form?: Record<string, unknown>, idempotencyKey?: string): Promise<T> => {
     const { baseUrl, apiKey } = this.getCreds('stripe')
+    if (!apiKey) return this.#corge.errors.httpError(500, 'Missing STRIPE_API_KEY for production payments', 'CONFIG_ERROR')
     return this.#withBreaker(1, () => requestStripeApi<T>(baseUrl, apiKey, this.#corge.config.payments.stripe.apiVersion, method, path, form, idempotencyKey))
   }
 
   dodoCall = <T = Record<string, any>>(method: string, path: string, body?: unknown, idempotencyKey?: string): Promise<T> => {
     const { baseUrl, apiKey } = this.getCreds('dodo')
+    if (!apiKey) return this.#corge.errors.httpError(500, 'Missing DODO_API_KEY for production payments', 'CONFIG_ERROR')
     return this.#withBreaker(1, () => requestDodoApi<T>(baseUrl, apiKey, method, path, body, idempotencyKey))
   }
 
@@ -142,7 +140,7 @@ export class PaymentsBillingEngine {
     const cfgUrls = this.#corge.config.payments.urls
     const successUrl = parsed.successUrl ?? resolveEnvScopedValue(cfgUrls.successUrl, isDev) ?? 'https://localhost/success'
     const cancelUrl = parsed.cancelUrl ?? resolveEnvScopedValue(cfgUrls.cancelUrl, isDev) ?? 'https://localhost/cancel'
-    const idemKey = idempotencyPaymentKey('chk', parsed.idempotencyKey ?? opts?.idempotencyKey)
+    const idemKey = idempotencyPaymentKey('chk', parsed.idempotencyKey)
 
     if (this.getCreds(provider).isSyntheticDev) {
       const checkoutId = `chk_dev_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`
@@ -187,7 +185,7 @@ export class PaymentsBillingEngine {
     const item = this.#resolveItem(parsed, userId)
     const { providerCustomerId } = await this.ensureCustomer(userId, provider)
     const returnUrl = parsed.returnUrl ?? resolveEnvScopedValue(this.#corge.config.payments.urls.returnUrl, isDev) ?? 'https://localhost/billing'
-    const idemKey = idempotencyPaymentKey('pl', parsed.idempotencyKey ?? opts?.idempotencyKey)
+    const idemKey = idempotencyPaymentKey('pl', parsed.idempotencyKey)
 
     if (this.getCreds(provider).isSyntheticDev) {
       const paymentLinkId = `pl_dev_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`
@@ -219,7 +217,7 @@ export class PaymentsBillingEngine {
     const item = this.#resolveItem(parsed, userId)
     const totalAmount = item.amount * item.quantity
     const { providerCustomerId } = await this.ensureCustomer(userId, provider)
-    const idemKey = idempotencyPaymentKey('inv', parsed.idempotencyKey ?? opts?.idempotencyKey)
+    const idemKey = idempotencyPaymentKey('inv', parsed.idempotencyKey)
 
     if (this.getCreds(provider).isSyntheticDev) {
       const invoiceId = `inv_dev_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`
@@ -285,7 +283,7 @@ export class PaymentsBillingEngine {
     const item = this.#resolveItem(parsed, userId)
     const totalAmount = item.amount * item.quantity
     const { providerCustomerId } = await this.ensureCustomer(userId, provider)
-    const idemKey = idempotencyPaymentKey('chg', parsed.idempotencyKey ?? opts?.idempotencyKey)
+    const idemKey = idempotencyPaymentKey('chg', parsed.idempotencyKey)
 
     if (this.getCreds(provider).isSyntheticDev) {
       const chargeId = idemKey ? `chg_dev_${idemKey.slice(4, 20)}` : `chg_dev_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`
@@ -354,7 +352,7 @@ export class PaymentsBillingEngine {
 
     const { providerCustomerId } = await this.ensureCustomer(userId, provider)
     const returnUrl = parsed.returnUrl ?? resolveEnvScopedValue(this.#corge.config.payments.urls.returnUrl, isDev) ?? 'https://localhost/billing'
-    const idemKey = idempotencyPaymentKey('sub', parsed.idempotencyKey ?? opts?.idempotencyKey)
+    const idemKey = idempotencyPaymentKey('sub', parsed.idempotencyKey)
 
     if (plan.interval === 'free' || plan.amount === 0 || this.getCreds(provider).isSyntheticDev) {
       const subscriptionId = `sub_dev_${plan.id}_${userId}`
@@ -408,7 +406,7 @@ export class PaymentsBillingEngine {
     if (!cust?.subscriptionId) return this.#corge.errors.httpError(400, 'No active subscription to change tier', 'NO_ACTIVE_SUBSCRIPTION')
     const provider = this.resolveProvider(opts?.provider ?? cust.activeProvider)
     const isDev = Boolean(this.#corge.env.isDev)
-    const idemKey = idempotencyPaymentKey('tier', parsed.idempotencyKey ?? opts?.idempotencyKey)
+    const idemKey = idempotencyPaymentKey('tier', parsed.idempotencyKey)
 
     if (!this.getCreds(provider).isSyntheticDev) {
       if (provider === 'stripe') {
@@ -455,7 +453,7 @@ export class PaymentsBillingEngine {
     const cust = await this.#corge.db.read('payment_customer', userId, false, { bypassRbac: true })
     if (!cust?.subscriptionId) return this.#corge.errors.httpError(400, 'No active subscription to cancel', 'NO_ACTIVE_SUBSCRIPTION')
     const provider = this.resolveProvider(opts?.provider ?? cust.activeProvider)
-    const idemKey = idempotencyPaymentKey('can', parsed.idempotencyKey ?? opts?.idempotencyKey)
+    const idemKey = idempotencyPaymentKey('can', parsed.idempotencyKey)
 
     if (!this.getCreds(provider).isSyntheticDev) {
       if (provider === 'stripe') {

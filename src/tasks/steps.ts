@@ -448,7 +448,6 @@ export class TaskStepsEngine {
       s.docRef ? runSerializedCompensation(s.docRef.id, () => executeCompensateState(s)) : executeCompensateState(s)
 
     return Object.assign(step, {
-      run: step,
       map: <T, R>(name: string, items: readonly T[], fn: (item: T, index: number, ctx: StepContext) => Promise<R>, options?: StepMapOptions<T, R>): Promise<R[]> =>
         this.#mapStep(s, flush, nextStepKey(name), items, fn, options),
       invoke: <I = unknown, O = unknown>(name: string, target: string | WorkflowTargetRef<I, O>, input: I, options?: { timeout?: Duration; dedupeKey?: string }): Promise<O> =>
@@ -465,8 +464,7 @@ export class TaskStepsEngine {
       },
       progress: (update: TaskProgressUpdate) => this.#progressStep(s, update),
       flush,
-      compensate,
-      onError: compensate
+      compensate
     })
   }
 }

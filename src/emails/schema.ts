@@ -155,7 +155,7 @@ export const sendEmailResultSchema = z.object({
   emailId: entryId,
   externalMessageId: z.string().optional(),
   status: emailLogStatusSchema,
-  provider: z.enum(['sendgrid', 'resend', 'firebase', 'dev']),
+  provider: z.enum(['sendgrid', 'resend', 'dev']),
   deduplicated: z.boolean().optional()
 })
 export type SendEmailResult = z.infer<typeof sendEmailResultSchema>

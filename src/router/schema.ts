@@ -23,10 +23,10 @@ import {
   type CreateInvoiceInput, type CreatePaymentLinkInput, type DirectChargeInput, type PlansMap,
   type ProductsMap, type SubscribeInput
 } from '../payments'
-import type { RollbackLeg, StepRetryPolicy, StepRunner } from '../tasks'
+import type { RollbackLeg, StepRunner } from '../tasks'
 import type { Duration } from '../utils'
 
-export type AuthLevel = 'public' | 'user' | 'strict' | 'admin' | false | 'none' | 'authenticated' | 'api-key'
+export type AuthLevel = 'public' | 'user' | 'strict' | 'admin'
 
 export type RouteMode = 'rest' | 'workflow'
 
@@ -80,7 +80,7 @@ export interface BaseRouteConfig<I = any, O = any, P = any, Q = any> {
   mcp?: boolean
   tool?: boolean
   timeout?: Duration
-  retry?: number | StepRetryPolicy
+  hedgeable?: boolean
   idempotencyKey?: (input: I, ctx: { userId: EntryId }) => string | undefined
 }
 
@@ -143,7 +143,7 @@ export type CorgeRouteId =
   | 'payments.webhook'
 
 export type CorgeRouteOverride = Partial<
-  Pick<RouteConfig, 'auth' | 'rateLimit' | 'guard' | 'mcp' | 'tool' | 'timeout' | 'retry' | 'description'>
+  Pick<RouteConfig, 'auth' | 'rateLimit' | 'guard' | 'mcp' | 'tool' | 'timeout' | 'hedgeable' | 'description'>
 >
 
 export type CorgeRouteOverrides = Partial<Record<CorgeRouteId, CorgeRouteOverride>>
@@ -155,6 +155,7 @@ export interface WorkflowRegistryEntry {
   output?: z.ZodType<any>
   mode: RouteMode
   deadlineSeconds?: number
+  hedgeable?: boolean
   guard?: BaseRouteConfig['guard']
   runTask: (params: any, step: StepRunner) => Promise<unknown>
   invoke: (
@@ -301,6 +302,7 @@ export const CORGE_ROUTE_DEFAULTS: Record<CorgeRouteId, BaseRouteConfig> = {
     guard: { checkFileRef: true },
     mcp: true,
     tool: true,
+    hedgeable: true,
     input: scanAttachmentInput,
     output: fileScan
   },
@@ -354,7 +356,7 @@ export const CORGE_ROUTE_DEFAULTS: Record<CorgeRouteId, BaseRouteConfig> = {
     mode: 'rest',
     method: 'POST',
     path: '/emails/webhooks/:provider',
-    auth: 'none',
+    auth: 'public',
     rawBody: true,
     rateLimit: { max: 600, windowMs: 60_000, keyBy: 'ip' },
     description: 'Receive and verify HMAC-SHA256 delivery/bounce/complaint webhooks from SendGrid or Resend.',
@@ -449,7 +451,7 @@ export const CORGE_ROUTE_DEFAULTS: Record<CorgeRouteId, BaseRouteConfig> = {
     mode: 'rest',
     method: 'POST',
     path: '/payments/webhooks/:provider',
-    auth: 'none',
+    auth: 'public',
     rawBody: true,
     rateLimit: { max: 600, windowMs: 60_000, keyBy: 'ip' },
     description: 'Receive and verify HMAC-SHA256 webhooks from Stripe or Dodo Payments with idempotent state reconciliation.',

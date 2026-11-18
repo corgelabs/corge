@@ -99,10 +99,7 @@ export interface DbListOptions<M = Record<string, any>> {
   limit?: number
   cursor?: string
   select?: (keyof M & string)[]
-  bypassRbac?: boolean
 }
-
-export type PaginatedList<T> = T[] & { nextCursor?: string | null }
 
 export interface DbListPage<T> {
   items: T[]
@@ -131,7 +128,7 @@ export const defineCollections = <T extends Record<string, CollectionDefinition<
     Object.entries(defs).map(([name, def]) => [name, defineCollection({ ...def, name: def.name ?? name })])
   ) as T
 
-export const coreCollections = defineCollections({
+export const corgeCollections = defineCollections({
   chat: {
     schema: z.object({
       userId: entryId,
@@ -207,7 +204,7 @@ export const coreCollections = defineCollections({
   email_log: {
     schema: z.object({
       userId: entryId.optional(),
-      provider: z.enum(['sendgrid', 'resend', 'firebase', 'dev']),
+      provider: z.enum(['sendgrid', 'resend', 'dev']),
       externalMessageId: z.string().optional(),
       to: z.string().email(),
       from: z.string(),
@@ -334,7 +331,7 @@ export const coreCollections = defineCollections({
   }
 })
 
-const CORE_COLLECTION_NAMES = [
+const CORGE_COLLECTION_NAMES = [
   'chat',
   'file',
   'user_auth_meta',
@@ -347,14 +344,14 @@ const CORE_COLLECTION_NAMES = [
 ] as const
 
 export const collectionRegistry = new Map<string, CollectionDefinition<any>>(
-  CORE_COLLECTION_NAMES.map((name) => [name, coreCollections[name]])
+  CORGE_COLLECTION_NAMES.map((name) => [name, corgeCollections[name]])
 )
 
 export const registerCollections = (defs: Record<string, CollectionDefinition<any>>, reset = false) => {
   if (reset) {
     collectionRegistry.clear()
-    for (const name of CORE_COLLECTION_NAMES) {
-      collectionRegistry.set(name, coreCollections[name])
+    for (const name of CORGE_COLLECTION_NAMES) {
+      collectionRegistry.set(name, corgeCollections[name])
     }
   }
   for (const [k, def] of Object.entries(defs)) {
@@ -365,7 +362,7 @@ export const registerCollections = (defs: Record<string, CollectionDefinition<an
 
 export const unregisterCollections = (names: string[]) => {
   for (const name of names) {
-    if (!CORE_COLLECTION_NAMES.includes(name as (typeof CORE_COLLECTION_NAMES)[number])) {
+    if (!CORGE_COLLECTION_NAMES.includes(name as (typeof CORGE_COLLECTION_NAMES)[number])) {
       collectionRegistry.delete(name)
     }
   }
@@ -388,13 +385,13 @@ export const getEffectiveRbac = (collection: string): RbacConfig => {
   }
 }
 
-export type CoreCollections = typeof coreCollections
+export type CorgeCollections = typeof corgeCollections
 
 export interface Register {}
 
 export type RegisteredCollections = Register extends { collections: infer C extends Record<string, CollectionDefinition<any>> }
-  ? CoreCollections & C
-  : CoreCollections
+  ? CorgeCollections & C
+  : CorgeCollections
 
 export type CollectionName = keyof RegisteredCollections | (string & {})
 

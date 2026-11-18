@@ -200,7 +200,7 @@ export class PaymentsService {
     const cfg = this.#corge.config.payments
     const db = this.#corge.db.firestore()
     const custRef = db.collection('payment_customer').doc(userId)
-    const rawIdemKey = parsed.idempotencyKey ?? opts?.idempotencyKey
+    const rawIdemKey = parsed.idempotencyKey
 
     await this.#corge.internals.resilience.acquireLimit('firestore')
     const txOut = await db.runTransaction(async (tx) => {

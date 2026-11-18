@@ -35,7 +35,6 @@ export interface PlanDefinition {
   currency?: Lowercase<string>
   providers?: ProviderPlanMapping
   quota?: PlanQuotaSpec
-  quotas?: PlanQuotaSpec
   metadata?: Record<string, string>
 }
 
@@ -76,8 +75,7 @@ export const registerPlans = (plans?: PlansMap, reset = false): void => {
   if (!plans) return
   const entries = Object.entries(plans)
   for (const [k, def] of entries) {
-    const quota = def.quota ?? def.quotas ?? {}
-    registeredPlans[k] = { ...def, id: def.id ?? k, quota, quotas: quota }
+    registeredPlans[k] = { ...def, id: def.id ?? k, quota: def.quota ?? {} }
   }
   if (entries.length > 0) CORGE_CONFIG.payments.enabled = true
 }
@@ -235,15 +233,12 @@ export const directChargeInput = z
   .object({
     product: z.string().optional(),
     custom: customLineItemSchema.optional(),
-    amount: z.number().int().positive().optional(),
-    currency: z.string().length(3).toLowerCase().optional(),
-    description: z.string().max(1000).optional(),
     paymentMethodId: z.string().optional(),
     idempotencyKey: z.string().max(200).optional(),
     metadata: z.record(z.string(), z.string()).optional()
   })
-  .refine((v) => Boolean(v.product || v.custom || v.amount), {
-    message: 'Provide product, custom, or amount'
+  .refine((v) => Number(Boolean(v.product)) + Number(Boolean(v.custom)) === 1, {
+    message: 'Provide exactly one of: product or custom'
   })
 export type DirectChargeInput = z.input<typeof directChargeInput>
 
@@ -326,8 +321,6 @@ export const usageStatusResultSchema = z.object({
   bonusMetrics: z.record(z.string(), z.number())
 })
 export type UsageStatusResult = z.infer<typeof usageStatusResultSchema>
-export const usageSummarySchema = usageStatusResultSchema
-export type UsageSummary = UsageStatusResult
 
 export const quotaCheckResultSchema = z.object({
   allowed: z.boolean(),
@@ -378,7 +371,6 @@ export type PaymentWebhookResult = z.infer<typeof paymentWebhookResultSchema>
 export interface PaymentCallOptions {
   provider?: PaymentProvider
   userId?: EntryId
-  idempotencyKey?: string
 }
 
 export interface NormalizedPaymentWebhook {

@@ -210,13 +210,14 @@ export class TaskWorkerEngine {
   ): Promise<O> => {
     const env = this.#corge.env
     const mode = opts?.mode ?? 'workflow'
+    const regWf = activeRegistry[workflowName]
     const explicitDeadline = opts?.timeout
       ? Math.max(
           15,
           Math.ceil(this.#corge.errors.parseDuration(opts.timeout, CORGE_CONFIG.tasks.defaultDeadlineSeconds * 1000) / 1000)
         )
-      : undefined
-    const deadline = resolveTaskDeadline(workflowName, explicitDeadline)
+      : regWf?.deadlineSeconds
+    const deadline = resolveTaskDeadline(explicitDeadline)
     const useQueue = mode !== 'rest' && CORGE_CONFIG.tasks.useCloudTasks
     const userId = opts?.userId ?? this.#corge.userId ?? CORGE_CONFIG.auth.adminUserId
     const userRole = this.#corge.internals.auth.resolveUserRole(userId, opts?.userRole ?? this.#corge.role)
@@ -264,7 +265,7 @@ export class TaskWorkerEngine {
       isDev: Boolean(env.isDev),
       docRef,
       workflowName,
-      hedgeable: workflowName === 'scan-attachment',
+      hedgeable: Boolean(regWf?.hedgeable),
       keepAlive,
       timeoutMs: CORGE_CONFIG.tasks.timeoutMs,
       ...(opts?.maxWaitMs !== undefined ? { maxWaitMs: opts.maxWaitMs } : {}),
@@ -449,7 +450,7 @@ export class TaskWorkerEngine {
       return
     }
 
-    const deadlineSeconds = resolveTaskDeadline(workflowName, wf.deadlineSeconds)
+    const deadlineSeconds = resolveTaskDeadline(wf.deadlineSeconds)
     const useQueue = CORGE_CONFIG.tasks.useCloudTasks
     const canYield = execOpts?.canYield ?? useQueue
 

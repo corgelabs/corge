@@ -272,7 +272,7 @@ export class TaskWatcherEngine {
     const isDev = Boolean(opts?.isDev ?? this.#corge.env.isDev)
     const docRef = opts?.docRef ?? this.#corge.db.firestore(isDev).collection('_tasks').doc(taskId)
     const workflowName = opts?.workflowName ?? 'workflow'
-    const hedgeable = Boolean(opts?.hedgeable ?? workflowName === 'scan-attachment')
+    const hedgeable = Boolean(opts?.hedgeable)
     const keepAlive = opts?.keepAlive ?? true
     const timeoutMs = opts?.timeoutMs ?? CORGE_CONFIG.tasks.timeoutMs
     const hedgeAfterMs = opts?.hedgeAfterMs ?? CORGE_CONFIG.tasks.hedgeAfterMs

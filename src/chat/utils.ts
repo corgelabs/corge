@@ -271,7 +271,7 @@ export const summarizeToolItems = (invocations?: readonly unknown[]): string => 
       const item = raw as Record<string, unknown>
       const kind = item.type === 'tool-call' ? 'call' : item.type === 'tool-result' ? 'result' : 'tool'
       const name = typeof item.toolName === 'string' ? item.toolName : 'unknown'
-      const payload = kind === 'call' ? (item.input ?? item.args) : (item.output ?? item.result)
+      const payload = kind === 'call' ? item.input : item.output
       return `${kind}:${name}=${JSON.stringify(payload ?? null).slice(0, 1_500)}`
     })
     .filter(Boolean)
@@ -348,8 +348,8 @@ export const buildUIMessageResponse = (
         for (const line of decoder.decode(value, { stream: true }).split('\n')) {
           if (!line.startsWith('data: ')) continue
           try {
-            const payload = JSON.parse(line.slice(6)) as { type?: string; delta?: string; textDelta?: string }
-            if (payload.type === 'text-delta') onDelta(payload.delta ?? payload.textDelta ?? '')
+            const payload = JSON.parse(line.slice(6)) as { type?: string; delta?: string }
+            if (payload.type === 'text-delta') onDelta(payload.delta ?? '')
           } catch {}
         }
       }

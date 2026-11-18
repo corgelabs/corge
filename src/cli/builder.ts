@@ -45,7 +45,7 @@ const resolveWithExtensions = (basePath: string): string | undefined => {
 export const corgeAliasPlugin = (cwd = process.cwd()): Plugin => ({
   name: 'corge-alias',
   setup(b) {
-    b.onResolve({ filter: /^(@corge|@corgelabs\/corge)$/ }, () => ({
+    b.onResolve({ filter: /^@corgelabs\/corge$/ }, () => ({
       path: resolveCorgeEntrypoint(cwd),
       external: false
     }))
@@ -67,7 +67,7 @@ export const corgeAliasPlugin = (cwd = process.cwd()): Plugin => ({
 
     b.onLoad({ filter: /.*/, namespace: 'corge-virtual' }, () => ({
       contents: [
-        "import { corge } from '@corge'",
+        "import { corge } from '@corgelabs/corge'",
         'export const { devApp, app, functions } = corge.createApp({})'
       ].join('\n'),
       loader: 'ts',

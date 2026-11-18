@@ -102,7 +102,6 @@ export interface WorkflowTargetRef<I = any, O = any> {
 }
 
 export interface StepRunner extends StepFn {
-  run: StepFn
   map: <T, R>(
     name: string,
     items: readonly T[],
@@ -131,7 +130,6 @@ export interface StepRunner extends StepFn {
   progress: (update: TaskProgressUpdate) => Promise<void>
   flush: () => Promise<PromiseSettledResult<unknown>[]>
   compensate: () => Promise<void>
-  onError: () => Promise<void>
 }
 
 export interface RollbackLeg<T> {
@@ -150,6 +148,7 @@ export interface WorkflowTaskPayload {
 export interface WorkflowRuntimeEntry {
   mode: RouteMode
   deadlineSeconds?: number
+  hedgeable?: boolean
   runTask: (params: any, step: StepRunner) => Promise<unknown>
 }
 
@@ -233,19 +232,6 @@ export class TaskWaitDetachedSignal extends Error {
   }
 }
 
-export interface PendingEntry {
-  taskId: string
-  workflowName: string
-  docRef: DocumentReference
-  createdAt: number
-  hedged: boolean
-  hedgeable?: boolean
-  keepAlive?: boolean
-  unsub?: () => void
-  dispatch: () => Promise<void>
-  finish: (res: TaskRecord<any>) => void
-}
-
 export interface WatchTaskOptions {
   isDev?: boolean
   docRef?: DocumentReference
@@ -281,7 +267,7 @@ export interface RouteIntrospectionItem {
   path: string
   mode: 'rest' | 'workflow'
   workflowName?: string
-  auth: string | false
+  auth: AuthLevel
   description: string
   mcp: boolean
   tool: boolean

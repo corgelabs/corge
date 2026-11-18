@@ -26,7 +26,7 @@ import {
   type SubscribeInput
 } from './schema'
 
-export const corePaymentRoutes = {
+export const corgePaymentRoutes = {
   'payments.checkout': {
     input: createCheckoutInput,
     output: checkoutSessionResultSchema,

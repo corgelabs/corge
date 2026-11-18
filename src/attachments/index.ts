@@ -1,3 +1,3 @@
 export * from './schema'
 export { AttachmentsService } from './service'
-export { coreAttachmentsRoutes } from './routes'
+export { corgeAttachmentsRoutes } from './routes'

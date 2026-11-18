@@ -9,7 +9,7 @@ import {
   type ScanAttachmentInput
 } from './schema'
 
-export const coreAttachmentsRoutes = {
+export const corgeAttachmentsRoutes = {
   'attachments.scan': {
     mode: 'workflow' as const,
     input: scanAttachmentInput,
@@ -22,6 +22,8 @@ export const coreAttachmentsRoutes = {
     mode: 'workflow' as const,
     input: processAttachmentsInput,
     output: processAttachmentsOutput,
+    shortCircuit: ({ input }: { input: ProcessAttachmentsInput }) =>
+      corge.internals.context.processShortCircuit({ input }),
     handler: ({ input, step }: { input: ProcessAttachmentsInput; step: StepRunner }) =>
       corge.attachments.process(input, { step })
   }

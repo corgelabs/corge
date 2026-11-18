@@ -106,13 +106,12 @@ const createOpenaiSseResponse = (
 const openaiCompletionsService = async ({
   c,
   userId,
-  input
+  input: body
 }: {
   c: Context<AppEnv>
   userId: EntryId
-  input?: z.infer<typeof openaiCompletionsBody>
+  input: z.infer<typeof openaiCompletionsBody>
 }) => {
-  const body = input ?? openaiCompletionsBody.parse(await c.req.json().catch(() => ({})))
   const agents = corge.internals.registry.getRegisteredAgents()
   const entries = Object.entries(agents)
   if (entries.length === 0) return corge.errors.httpError(404, 'No registered agents', 'NOT_FOUND')
@@ -197,7 +196,7 @@ export const mcpRoute = async (
   return createMcpHandler(() => server).fetch(request)
 }
 
-export const coreChatRoutes = {
+export const corgeChatRoutes = {
   'chat.list': {
     handler: async ({ c, userId }: { c: Context<AppEnv>; userId: EntryId }) =>
       corge.db.list(
@@ -260,7 +259,7 @@ export const coreChatRoutes = {
     }: {
       c: Context<AppEnv>
       userId: EntryId
-      input?: z.infer<typeof streamChatBody>
+      input: z.infer<typeof streamChatBody>
     }) => corge.internals.context.streamChatSse({ c, userId, input })
   },
   'chat.cancel': {

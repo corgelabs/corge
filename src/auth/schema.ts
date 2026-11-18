@@ -10,10 +10,6 @@ import { entryId, type BaseEntryFields, type EntryId } from '../db'
 
 export { type AuthEmailPurpose, type AuthTokenPurpose, type TransactionalEmailPayload }
 
-export const SESSION_COOKIE = CORGE_CONFIG.auth.sessionCookie
-export const SESSION_EXPIRES_IN = CORGE_CONFIG.auth.sessionExpiresInMs
-export const ADMIN_USER_ID: EntryId = CORGE_CONFIG.auth.adminUserId
-
 export type OAuthProvider = 'google' | 'apple'
 
 export interface LinkedProvider {
@@ -120,8 +116,6 @@ export const socialSignInInput = z.object({
   idToken: z.string().min(20),
   /** Optional raw nonce for Apple Sign-In replay protection */
   nonce: z.string().optional(),
-  /** Optional access token (Google) */
-  accessToken: z.string().optional(),
   /**
    * Apple iOS/Capacitor quirk: Apple ONLY sends the user's `name` on the VERY FIRST authorization.
    * Accept optional first-time profile data from the client and persist it immediately.
@@ -182,4 +176,4 @@ export type CompleteAccountRecoveryInput = z.infer<typeof completeAccountRecover
 export const blockUserBody = z
   .object({ userId: entryId.optional(), blocked: z.boolean().default(true) })
   .default({ blocked: true })
-export const signOutBody = z.object({ deleteUser: z.boolean().optional() }).default({})
+export const signOutBody = z.object({}).default({})

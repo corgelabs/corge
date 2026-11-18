@@ -417,7 +417,7 @@ export class AuthSessionEngine {
       ...(meta?.recoveryEmail !== undefined ? { recoveryEmail: meta.recoveryEmail } : {}),
       ...(meta?.recoveryEmailVerified !== undefined ? { recoveryEmailVerified: meta.recoveryEmailVerified } : {}),
       ...(meta?.linkedProviders?.length ? { linkedProviders: meta.linkedProviders } : {}),
-      ...(decoded.role || decoded.admin ? { customClaims: { role } } : {}),
+      ...(decoded.role ? { customClaims: { role } } : {}),
       deleted: false,
       createdAt: meta?.createdAt ?? now,
       updatedAt: now
@@ -443,15 +443,14 @@ export class AuthSessionEngine {
     return this.createSession(data.idToken, profile)
   }
 
-  revokeSession = async (sessionCookie: string, deleteUser = false): Promise<void> => {
+  revokeSession = async (sessionCookie: string): Promise<void> => {
     const auth = this.getAuth()
     const uid = tokenCache.get(sessionCookie)?.uid ?? (await auth.verifySessionCookie(sessionCookie)).sub
     this.evictUserTokens(uid)
     tokenCache.delete(sessionCookie)
     await Promise.all([
       this.recordRevocation(uid, this.#corge.env.isDev),
-      auth.revokeRefreshTokens(uid).catch(() => {}),
-      ...(deleteUser ? [auth.updateUser(uid, { disabled: true }).catch(() => {})] : [])
+      auth.revokeRefreshTokens(uid).catch(() => {})
     ])
   }
 }

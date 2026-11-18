@@ -11,7 +11,7 @@ export const resolveUserRole = (userId?: EntryId, explicitRole?: DbRole): DbRole
 }
 
 export const resolveTokenRole = (decoded: Record<string, unknown>, uid: EntryId): DbRole =>
-  uid === CORGE_CONFIG.auth.adminUserId || decoded.role === 'admin' || decoded.admin === true ? 'admin' : 'user'
+  uid === CORGE_CONFIG.auth.adminUserId || decoded.role === 'admin' ? 'admin' : 'user'
 
 export const normalizeDate = (val: unknown, fallback = new Date()): Date => {
   if (val instanceof Date) return val
@@ -59,18 +59,7 @@ export const parseLinkedProviders = (rawProviders: unknown, fallbackDate = new D
 export const mapUserRecord = (u: UserRecord, meta?: UserAuthMetaRecord): AuthUser => {
   const createdAt = new Date(u.metadata.creationTime || Date.now())
   const updatedAt = new Date(u.metadata.lastRefreshTime || u.metadata.creationTime || Date.now())
-  const fbProviders: LinkedProvider[] = (u.providerData ?? [])
-    .filter((p) => p.providerId === 'google.com' || p.providerId === 'apple.com')
-    .map((p) => ({
-      provider: (p.providerId === 'apple.com' ? 'apple' : 'google') as OAuthProvider,
-      providerUserId: p.uid,
-      ...(p.email ? { email: p.email } : {}),
-      linkedAt: createdAt
-    }))
-  const mergedProvidersMap = new Map<string, LinkedProvider>()
-  for (const p of fbProviders) mergedProvidersMap.set(`${p.provider}:${p.providerUserId}`, p)
-  for (const p of meta?.linkedProviders ?? []) mergedProvidersMap.set(`${p.provider}:${p.providerUserId}`, p)
-  const linkedProviders = [...mergedProvidersMap.values()]
+  const linkedProviders = meta?.linkedProviders ?? []
   const avatarUrl = u.photoURL ?? meta?.avatarUrl ?? undefined
 
   return {

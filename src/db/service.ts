@@ -14,12 +14,10 @@ import {
   type DbListPage,
   type EntryId,
   type InsertData,
-  type PaginatedList,
   type SelectModel,
   type UpdateData
 } from './schema'
 import {
-  attachNextCursor,
   buildScopedCollectionQuery,
   drainQueryBatchDelete,
   executeFilteredListQuery,
@@ -29,7 +27,7 @@ import {
   resolveJunction,
   runChunked,
   stripImmutableUpdateFields,
-  wireCoreCollectionHooks
+  wireCorgeCollectionHooks
 } from './utils'
 
 type StorageBucket = ReturnType<ReturnType<typeof getStorage>['bucket']>
@@ -45,7 +43,7 @@ export class DbService {
 
   constructor(corgeClient: Corge) {
     this.#corge = corgeClient
-    wireCoreCollectionHooks()
+    wireCorgeCollectionHooks()
   }
 
   #ensureFirebaseApp = (): void => {
@@ -185,12 +183,8 @@ export class DbService {
     }
     await this.#corge.internals.resilience.acquireLimit('firestore')
     const def = getCollectionDef(collection)
-    const rel = def.userRelation?.type ?? '1:N'
-    const userField = def.userRelation?.userField ?? (rel === '1:1' ? 'id' : 'userId')
     const col = this.firestore().collection(collection)
-    const explicitId =
-      data.id ?? (rel === '1:1' && userField === 'id' ? (data as Record<string, any>).userId : undefined)
-    const docRef = explicitId ? col.doc(String(explicitId)) : col.doc()
+    const docRef = data.id ? col.doc(String(data.id)) : col.doc()
     const now = new Date()
     const fullDoc = def.schema.parse({ deleted: false, ...data, id: docRef.id, createdAt: now, updatedAt: now })
     await docRef.set(fullDoc)
@@ -249,9 +243,9 @@ export class DbService {
     collection: N,
     opts?: DbListOptions<SelectModel<N>>,
     ctx?: DbCallContext
-  ): Promise<PaginatedList<SelectModel<N>>> => {
+  ): Promise<SelectModel<N>[]> => {
     const effective = this.#effectiveCtx(ctx)
-    const bypass = Boolean(opts?.bypassRbac || effective.bypassRbac)
+    const bypass = Boolean(effective.bypassRbac)
     let scopedUserId = opts?.userId
     if (!bypass) {
       const role = this.#resolveRole(effective)
@@ -272,9 +266,9 @@ export class DbService {
 
     if (opts?.ids) {
       const docs = await this.#batchReadByIds(collection, opts.ids, opts.includeDeleted, hasSelect)
-      if (!scopedUserId || rel === 'global') return attachNextCursor(docs.slice(0, maxDocs), maxDocs)
+      if (!scopedUserId || rel === 'global') return docs.slice(0, maxDocs)
       const ownership = await Promise.all(docs.map((doc) => this.#isEntryOwner(collection, doc, scopedUserId)))
-      return attachNextCursor(docs.filter((_, i) => ownership[i]).slice(0, maxDocs), maxDocs)
+      return docs.filter((_, i) => ownership[i]).slice(0, maxDocs)
     }
 
     await this.#corge.internals.resilience.acquireLimit('firestore')
@@ -282,14 +276,13 @@ export class DbService {
     if (scopedUserId) {
       if (rel === '1:1' && (def.userRelation?.userField ?? 'id') === 'id') {
         const single = await this.read(collection, scopedUserId, opts?.includeDeleted, { bypassRbac: true })
-        return attachNextCursor(single ? [single] : [], maxDocs)
+        return single ? [single] : []
       }
       if (rel === 'M:N' && def.userRelation?.junction) {
         const { collection: jCol, userField, targetField } = resolveJunction(collection, def.userRelation.junction)
         const jSnap = await db.collection(jCol).where(userField, '==', scopedUserId).limit(maxDocs).get()
         const targetIds = jSnap.docs.map((d) => String(d.data()[targetField] ?? '')).filter(Boolean)
-        const docs = await this.#batchReadByIds(collection, targetIds, opts?.includeDeleted, hasSelect)
-        return attachNextCursor(docs, maxDocs)
+        return this.#batchReadByIds(collection, targetIds, opts?.includeDeleted, hasSelect)
       }
     }
 
@@ -309,7 +302,7 @@ export class DbService {
       hasSelect,
       this.#corge.config.limits.defaultListLimit
     )
-    return attachNextCursor(docs.slice(0, maxDocs), maxDocs)
+    return docs.slice(0, maxDocs)
   }
 
   listPage = async <N extends CollectionName>(
@@ -317,8 +310,10 @@ export class DbService {
     opts?: DbListOptions<SelectModel<N>>,
     ctx?: DbCallContext
   ): Promise<DbListPage<SelectModel<N>>> => {
+    const maxDocs = opts?.limit ?? this.#corge.config.limits.defaultListLimit
     const items = await this.list(collection, opts, ctx)
-    return { items, nextCursor: items.nextCursor ?? null }
+    const nextCursor = items.length >= maxDocs ? (items.at(-1)?.id ?? null) : null
+    return { items, nextCursor }
   }
 
   update = async <N extends CollectionName>(
@@ -446,7 +441,7 @@ export class DbService {
           return jSnap.size
         }
         const userIdsField = def.userRelation?.userIdsField ?? 'userIds'
-        const docs = await this.list(name, { userId, includeDeleted: true, limit: 500, bypassRbac: true })
+        const docs = await this.list(name, { userId, includeDeleted: true, limit: 500 }, { bypassRbac: true })
         await runChunked(docs, async (d) => {
           const currentIds: string[] = Array.isArray(d[userIdsField]) ? d[userIdsField] : []
           if (def.userRelation?.deleteWhenEmpty && currentIds.filter((u) => u !== userId).length === 0) {

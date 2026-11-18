@@ -38,9 +38,9 @@ export const buildRoutesIntrospection = (
   scope: 'all' | 'custom' | 'corge' = 'all'
 ): RoutesIntrospectionResponse => {
   const filtered = routeItems.filter((r) => {
-    const isCore = r.id in CORGE_ROUTE_DEFAULTS
-    if (scope === 'corge') return isCore
-    if (scope === 'custom') return !isCore
+    const isCorge = r.id in CORGE_ROUTE_DEFAULTS
+    if (scope === 'corge') return isCorge
+    if (scope === 'custom') return !isCorge
     return true
   })
 
@@ -77,7 +77,7 @@ export const buildRoutesIntrospection = (
 }
 
 export const renderApiContractMarkdown = (meta: RoutesIntrospectionResponse): string => {
-  const coreRoutes = meta.routes.filter((r) => r.id in CORGE_ROUTE_DEFAULTS)
+  const corgeRoutes = meta.routes.filter((r) => r.id in CORGE_ROUTE_DEFAULTS)
   const domainRoutes = meta.routes.filter((r) => !(r.id in CORGE_ROUTE_DEFAULTS))
 
   const renderRouteBlock = (r: RouteIntrospectionItem) => {
@@ -115,7 +115,7 @@ export const renderApiContractMarkdown = (meta: RoutesIntrospectionResponse): st
     '## 1. Corge Protocol & Architecture Conventions',
     '',
     '### 1.1. Authentication & Sessions (`auth`)',
-    '- **`public` / `none` / `false`**: No authentication required.',
+    '- **`public`**: No authentication required.',
     '- **`user`**: Requires `Authorization: Bearer <idToken | SDK_API_KEY>` or HTTP-only `session` cookie.',
     '- **`strict`**: Requires revocation-checked session verification (`verifySessionCookie(..., true)` / `_system/auth_revocations`).',
     '- **`admin`**: Requires admin role (`SDK_API_KEY` or admin user claim).',
@@ -135,7 +135,7 @@ export const renderApiContractMarkdown = (meta: RoutesIntrospectionResponse): st
     '',
     '## 2. Corge Endpoints Catalog',
     '',
-    ...coreRoutes.map(renderRouteBlock),
+    ...corgeRoutes.map(renderRouteBlock),
     '',
     '## 3. Domain Endpoints Catalog',
     '',

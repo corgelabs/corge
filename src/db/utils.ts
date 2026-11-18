@@ -7,7 +7,6 @@ import {
   getEffectiveRbac,
   type CollectionName,
   type DbListOptions,
-  type PaginatedList,
   type SelectModel,
   type UserRelationConfig
 } from './schema'
@@ -46,20 +45,8 @@ export const fromFirestoreDoc = <T extends CollectionName>(
   partial = false
 ): SelectModel<T> => {
   const norm = normalizeDates({ ...raw, id }) as Record<string, unknown>
-  if (!partial) {
-    const fallback =
-      norm.updatedAt instanceof Date ? norm.updatedAt : norm.createdAt instanceof Date ? norm.createdAt : new Date(0)
-    if (norm.createdAt === undefined) norm.createdAt = fallback
-    if (norm.updatedAt === undefined) norm.updatedAt = fallback
-  }
   const schema = getCollectionDef(c).schema
   return (partial ? schema.partial().parse(norm) : schema.parse(norm)) as SelectModel<T>
-}
-
-export const attachNextCursor = <T extends { id: string }>(items: T[], limit: number): PaginatedList<T> => {
-  const nextCursor = items.length >= limit ? (items.at(-1)?.id ?? null) : null
-  Object.defineProperty(items, 'nextCursor', { value: nextCursor, enumerable: false, configurable: true })
-  return items as PaginatedList<T>
 }
 
 export const stripImmutableUpdateFields = (
@@ -235,7 +222,7 @@ export const buildScopedCollectionQuery = (
   return q
 }
 
-export const wireCoreCollectionHooks = (): void => {
+export const wireCorgeCollectionHooks = (): void => {
   const chatDef = collectionRegistry.get('chat')
   if (chatDef && !chatDef.onHardDelete) {
     chatDef.onHardDelete = async (doc: { id?: string }, corge: Corge) => {

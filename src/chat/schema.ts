@@ -9,11 +9,7 @@ import type { AuthLevel } from '../router'
 
 export type VectorValue = ReturnType<typeof FieldValue.vector>
 
-export type SystemPromptBuilder = (ctx: {
-  today: string
-  userId: EntryId
-  env: AppBindings
-}) => string | Promise<string>
+export type SystemPromptBuilder = (ctx: { env: AppBindings }) => string | Promise<string>
 
 export interface AgentToolPresets {
   discovery?: string[]
@@ -242,7 +238,6 @@ export const listChatMessagesQuery = z.object({
 export const saveChatBody = z
   .object({
     id: entryId.optional(),
-    chatId: entryId.optional(),
     title: z.string().min(1).max(256).optional(),
     agentId: z.string().min(1).max(128).optional(),
     model: z.string().min(1).max(128).optional(),
@@ -262,8 +257,6 @@ export type StreamChatMessageInput = z.infer<typeof streamChatMessageInput>
 
 export const streamChatBody = z
   .object({
-    id: entryId.optional(),
-    chatId: entryId.optional(),
     agentId: z.string().min(1).max(128).optional(),
     title: z.string().max(256).optional(),
     model: z.string().max(128).optional(),
@@ -292,12 +285,11 @@ export const openaiMessageSchema = z
 
 export const openaiCompletionsBody = z
   .object({
-    model: z.string(),
+    model: z.string().optional(),
     messages: z.array(openaiMessageSchema).min(1).max(500),
     stream: z.boolean().optional(),
     stream_options: z.object({ include_usage: z.boolean().optional() }).optional()
   })
-  .extend({ model: z.string().optional() })
   .passthrough()
 
 export const webSearchInput = z.object({

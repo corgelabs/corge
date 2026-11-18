@@ -59,11 +59,8 @@ export const zodToJsonSchemaSafe = (schema?: z.ZodType<any>): Record<string, unk
   }
 }
 
-export const resolveTaskDeadline = (workflowName: string, deadlineSeconds?: number): number =>
-  deadlineSeconds ??
-  (workflowName === 'scan-attachment'
-    ? CORGE_CONFIG.tasks.scanDeadlineSeconds
-    : CORGE_CONFIG.tasks.defaultDeadlineSeconds)
+export const resolveTaskDeadline = (deadlineSeconds?: number): number =>
+  deadlineSeconds ?? CORGE_CONFIG.tasks.defaultDeadlineSeconds
 
 export const getQueueLoc = (): string => `projects/${CORGE_CONFIG.gcpProject}/locations/${CORGE_CONFIG.region}`
 

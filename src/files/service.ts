@@ -5,7 +5,6 @@ import {
   entryId,
   type DbListOptions,
   type EntryId,
-  type PaginatedList,
   type SelectModel
 } from '../db'
 import type { Corge } from '../index'
@@ -193,7 +192,7 @@ export class FilesService {
     })
   }
 
-  list = async (options?: DbListOptions<SelectModel<'file'>>): Promise<PaginatedList<SelectModel<'file'>>> =>
+  list = async (options?: DbListOptions<SelectModel<'file'>>): Promise<SelectModel<'file'>[]> =>
     this.#corge.db.list('file', {
       ...(this.#corge.userId && this.#corge.role !== 'admin' ? { userId: this.#corge.userId } : {}),
       ...options

@@ -4,7 +4,7 @@ import type { EntryId } from '../db'
 import { corge } from '../index'
 import type { FileType } from './schema'
 
-export const coreFilesRoutes = {
+export const corgeFilesRoutes = {
   'files.list': {
     handler: async ({ userId }: { userId: EntryId }) => corge.db.list('file', { userId }, { bypassRbac: true })
   },

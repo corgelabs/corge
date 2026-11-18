@@ -134,10 +134,10 @@ export const buildVertexDecideFallbackSpec = (questions: Record<string, Decision
 
 export const normalizeUsage = (
   model: string,
-  raw?: { inputTokens?: number; outputTokens?: number; totalTokens?: number; tokens?: number } | null,
+  raw?: { inputTokens?: number; outputTokens?: number; totalTokens?: number } | null,
   pages?: number
 ): AiUsageSummary => {
-  const inputTokens = raw?.inputTokens ?? raw?.tokens ?? 0
+  const inputTokens = raw?.inputTokens ?? 0
   const outputTokens = raw?.outputTokens ?? 0
   const totalTokens = raw?.totalTokens ?? (inputTokens + outputTokens || (pages ? pages * 1000 : 0))
   return {

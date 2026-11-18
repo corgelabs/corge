@@ -1,4 +1,4 @@
-import type { DbListOptions, EntryId, PaginatedList, SelectModel } from '../db'
+import type { DbListOptions, EntryId, SelectModel } from '../db'
 import type { Corge } from '../index'
 import {
   getEmailTemplate,
@@ -22,7 +22,6 @@ import {
   idempotencyEmailDocId,
   normalizeEmail,
   parseAndVerifyEmailWebhook,
-  postFirebaseOobCode,
   postResendBatch,
   postResendEmail,
   postSendGridMail,
@@ -40,19 +39,18 @@ export class EmailsService {
   }
 
   #resolveProvider = (override?: EmailProvider): EmailProvider | 'dev' => {
-    const preferred = override ?? this.#corge.config.emails.provider
-    const hasResend = Boolean(this.#corge.env.RESEND_API_KEY?.trim())
-    const hasSendGrid = Boolean(this.#corge.env.SENDGRID_API_KEY?.trim())
-    if (preferred === 'sendgrid') {
-      if (hasSendGrid) return 'sendgrid'
-      if (!override && hasResend) return 'resend'
-    } else if (preferred === 'resend') {
-      if (hasResend) return 'resend'
-      if (!override && hasSendGrid) return 'sendgrid'
-    } else if (preferred === 'firebase') {
-      return this.#corge.env.isDev && !this.#corge.env.WEB_API_KEY ? 'dev' : 'firebase'
-    }
-    return this.#corge.env.isDev ? 'dev' : 'firebase'
+    const provider = override ?? this.#corge.config.emails.provider
+    const hasKey =
+      provider === 'sendgrid'
+        ? Boolean(this.#corge.env.SENDGRID_API_KEY?.trim())
+        : Boolean(this.#corge.env.RESEND_API_KEY?.trim())
+    if (hasKey) return provider
+    if (this.#corge.env.isDev) return 'dev'
+    return this.#corge.errors.httpError(
+      500,
+      `Missing API key for configured email provider "${provider}"`,
+      'CONFIG_ERROR'
+    )
   }
 
   #resolveAttachments = async (attachments?: EmailAttachmentInput[]): Promise<ResolvedAttachment[]> =>
@@ -95,23 +93,6 @@ export class EmailsService {
     this.#withEmailBreaker(reqs.length, () =>
       postResendBatch(this.#corge.config.emails.resend.baseUrl, this.#corge.env.RESEND_API_KEY, reqs)
     )
-
-  #sendFirebaseOobEmail = async (payload: TransactionalEmailPayload): Promise<void> => {
-    const apiKey = this.#corge.env.WEB_API_KEY
-    if (!apiKey) return
-    try {
-      const customToken =
-        payload.purpose === 'verify_email'
-          ? (await this.#corge.internals.auth.mintCustomToken(payload.userId)).customToken
-          : undefined
-      await postFirebaseOobCode(
-        apiKey,
-        customToken,
-        payload,
-        this.#corge.config.emails.actionBaseUrl || 'http://localhost'
-      )
-    } catch {}
-  }
 
   #prepareEmailRequest = async (
     rawInput: SendEmailInput<any>,
@@ -198,9 +179,7 @@ export class EmailsService {
   getLog = async (emailId: EntryId): Promise<SelectModel<'email_log'> | undefined> =>
     this.#corge.db.read('email_log', emailId, false, { bypassRbac: true })
 
-  listLogs = async (
-    options?: DbListOptions<SelectModel<'email_log'>>
-  ): Promise<PaginatedList<SelectModel<'email_log'>>> =>
+  listLogs = async (options?: DbListOptions<SelectModel<'email_log'>>): Promise<SelectModel<'email_log'>[]> =>
     this.#corge.db.list('email_log', options, { bypassRbac: true })
 
   #checkExistingIdempotentEmail = async (idempotencyKey?: string): Promise<SendEmailResult | undefined> => {
@@ -374,34 +353,14 @@ export class EmailsService {
       )
     }
 
-    const provider = this.#resolveProvider(opts?.provider)
-    if (provider === 'sendgrid' || provider === 'resend' || this.#corge.env.isDev) {
-      return this.send(
-        {
-          to: normalizedTo,
-          ...renderDefaultAuthEmail(authVars, flowCfg?.subject),
-          variables: authVars,
-          purpose: payload.purpose
-        },
-        callOpts
-      )
-    }
-
-    await this.#sendFirebaseOobEmail(normalizedPayload)
-    return this.#recordEmailLog(
+    return this.send(
       {
-        emailId: `em_fb_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`,
-        to: [normalizedTo],
-        fromEmail: emailsCfg.fromEmail,
-        fromName: emailsCfg.fromName,
-        subject: flowCfg?.subject ?? payload.purpose,
+        to: normalizedTo,
+        ...renderDefaultAuthEmail(authVars, flowCfg?.subject),
         variables: authVars,
-        attachments: [],
-        purpose: payload.purpose,
-        userId: payload.userId
+        purpose: payload.purpose
       },
-      'firebase',
-      'sent'
+      callOpts
     )
   }
 
@@ -453,10 +412,9 @@ export class EmailsService {
     rawBody: string,
     headers: Record<string, string | undefined>
   ): Promise<{ received: true; processed: number }> => {
-    const secret =
-      this.#corge.env.isDev && this.#corge.env.EMAIL_SANDBOX_WEBHOOK_SECRET
-        ? this.#corge.env.EMAIL_SANDBOX_WEBHOOK_SECRET
-        : this.#corge.env.EMAIL_WEBHOOK_SECRET || this.#corge.env.EMAIL_SANDBOX_WEBHOOK_SECRET
+    const secret = (
+      this.#corge.env.isDev ? this.#corge.env.EMAIL_SANDBOX_WEBHOOK_SECRET : this.#corge.env.EMAIL_WEBHOOK_SECRET
+    ).trim()
     try {
       const parsed = parseAndVerifyEmailWebhook(
         provider,

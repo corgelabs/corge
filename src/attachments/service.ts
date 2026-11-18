@@ -210,8 +210,7 @@ export class AttachmentsService {
           return this.#corge.errors.nonRetryableError(entry.scanError.agentHint, entry.scanError.reason)
         }
 
-        const shaSum = entry.shaSum || ref.slice(-24)
-        const crossUserMatch = await this.#findCrossUserByShaSum(ref, shaSum, type)
+        const crossUserMatch = await this.#findCrossUserByShaSum(ref, entry.shaSum, type)
         if (crossUserMatch?.scan) {
           await step('persist', () =>
             this.#corge.db.update('file', ref, { scan: crossUserMatch.scan!, scanError: null }, { bypassRbac: true })
@@ -261,11 +260,35 @@ export class AttachmentsService {
 
   #scanShortCircuit = async ({ input }: { input: ScanAttachmentInput }): Promise<ScanAttachmentOutput | undefined> => {
     const entry = await this.#corge.db.read('file', input.ref, false, { bypassRbac: true })
-    if (entry?.scan) return scanAttachmentOutput.parse(entry.scan)
+    if (entry?.scan && (!input.type || entry.scan.type === input.type)) return scanAttachmentOutput.parse(entry.scan)
     if (entry?.scanError) {
       return this.#corge.errors.nonRetryableError(entry.scanError.agentHint, entry.scanError.reason)
     }
     return undefined
+  }
+
+  #processShortCircuit = async ({
+    input
+  }: {
+    input: ProcessAttachmentsInput
+  }): Promise<ProcessAttachmentsOutput | undefined> => {
+    const tasks = extractAttachmentTasks(input)
+    const uniqueRefs = [...new Set(tasks.map((t) => t.ref))]
+    const existingFiles = await this.#corge.db.list('file', { ids: uniqueRefs }, { bypassRbac: true })
+    if (existingFiles.length < uniqueRefs.length) return undefined
+    const fileMap = new Map<FileRef, SelectModel<'file'>>(existingFiles.map((f) => [f.id, f]))
+    const attachments: ProcessedAttachment[] = []
+    for (const t of tasks) {
+      const fileDoc = fileMap.get(t.ref)
+      if (fileDoc?.scan && (!t.type || fileDoc.scan.type === t.type)) {
+        attachments.push({ ref: t.ref, scan: scanAttachmentOutput.parse(fileDoc.scan) })
+      } else if (fileDoc?.scanError) {
+        attachments.push({ ref: t.ref, error: fileDoc.scanError.agentHint })
+      } else {
+        return undefined
+      }
+    }
+    return processAttachmentsOutput.parse({ attachments })
   }
 
   #scanTask = async ({
@@ -330,7 +353,8 @@ export class AttachmentsService {
 
   get internals() {
     return {
-      scanShortCircuit: this.#scanShortCircuit
+      scanShortCircuit: this.#scanShortCircuit,
+      processShortCircuit: this.#processShortCircuit
     }
   }
 }

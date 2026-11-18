@@ -65,15 +65,17 @@ import { corge } from '@corgelabs/corge'
 import { z } from 'zod'
 
 const collections = corge.define.collections({
-  invoice: corge.define.collection({
-    schema: z.strictObject({
-      id: corge.schemas.entryId,
+  invoice: {
+    schema: z.object({
       userId: corge.schemas.entryId,
       vendor: z.string(),
       totalCents: z.number().int().nonnegative()
     }),
-    rbac: { user: ['create', 'read', 'list'], admin: ['create', 'read', 'update', 'delete', 'list'] }
-  })
+    rbac: {
+      user: { own: ['create', 'read'] },
+      admin: { any: ['*'] }
+    }
+  }
 })
 
 const routes = corge.define.routes({

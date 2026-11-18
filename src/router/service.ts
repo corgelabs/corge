@@ -6,20 +6,20 @@ import { Hono, type Context } from 'hono'
 import { bodyLimit } from 'hono/body-limit'
 import { cors } from 'hono/cors'
 import { z } from 'zod'
-import { coreAttachmentsRoutes, getRegisteredAttachmentTypes, registerAttachmentTypes } from '../attachments'
-import { coreAuthRoutes } from '../auth'
-import { coreChatRoutes, mcpRoute } from '../chat'
+import { corgeAttachmentsRoutes, getRegisteredAttachmentTypes, registerAttachmentTypes } from '../attachments'
+import { corgeAuthRoutes } from '../auth'
+import { corgeChatRoutes, mcpRoute } from '../chat'
 import { CORGE_CONFIG, SECRET_NAMES, type AppBindings, type AppEnv, type DbRole } from '../config'
 import { registerCollections, type EntryId } from '../db'
-import { coreEmailRoutes, registerEmailTemplates } from '../emails'
-import { coreFilesRoutes } from '../files'
+import { corgeEmailRoutes, registerEmailTemplates } from '../emails'
+import { corgeFilesRoutes } from '../files'
 import { Corge } from '../index'
-import { corePaymentRoutes, registerPlans, registerProducts } from '../payments'
+import { corgePaymentRoutes, registerPlans, registerProducts } from '../payments'
 import {
   buildHealthRoute, buildRoutesListRoute, buildTaskCancelRoute, buildTaskSignalRoute, buildTaskStatusRoute,
   TaskWaitDetachedSignal, type RouteRegistryItem, type StepRunner, type WorkflowRuntimeEntry, type WorkflowTaskPayload
 } from '../tasks'
-import { isRespondAsyncPreferred, mergeCoreAndDomainRoutes, RouterGuardEngine } from './guard'
+import { isRespondAsyncPreferred, mergeCorgeAndDomainRoutes, RouterGuardEngine } from './guard'
 import {
   type CorgeAppInit, type CorgeRouteId, type RouteConfig, type RouteExecutionContext, type RouteMode, type WorkflowRegistryEntry
 } from './schema'
@@ -77,7 +77,7 @@ export class RouterService {
 
     const workerConfig = {
       ...workerOpts,
-      invoker: [CORGE_CONFIG.serviceAccount, CORGE_CONFIG.computeAccount],
+      invoker: [CORGE_CONFIG.serviceAccount, ...(CORGE_CONFIG.computeAccount ? [CORGE_CONFIG.computeAccount] : [])],
       retryConfig: { maxAttempts: CORGE_CONFIG.tasks.maxAttempts, minBackoffSeconds: 2, maxBackoffSeconds: 20 },
       rateLimits: { maxConcurrentDispatches: 1000, maxDispatchesPerSecond: 500 }
     }
@@ -141,7 +141,7 @@ export class RouterService {
       }
     }
 
-    return { httpHandler, devHttpHandler, tasksHandler, devTasksHandler, functions }
+    return functions
   }
 
   #makeCtx = <I, P = Record<string, string>, Q = Record<string, string>>(
@@ -179,7 +179,7 @@ export class RouterService {
     return { taskId, status: 'running', pollUrl: `/api/tasks/${taskId}` }
   }
 
-  #executeRouteCore = async (opts: {
+  #executeRoute = async (opts: {
     key: string
     wfName: string
     cfg: RouteConfig
@@ -217,7 +217,7 @@ export class RouterService {
       return parseOut(out)
     }
 
-    const cached = cfg.shortCircuit ? await runWithStep('workflow', cfg.shortCircuit) : undefined
+    const cached = wait && cfg.shortCircuit ? await runWithStep('workflow', cfg.shortCircuit) : undefined
     if (cached !== undefined && cached !== null) return parseOut(cached)
 
     try {
@@ -278,6 +278,7 @@ export class RouterService {
         output: cfg.output,
         mode,
         ...(deadlineSeconds !== undefined ? { deadlineSeconds } : {}),
+        ...(cfg.hedgeable ? { hedgeable: true } : {}),
         guard: cfg.guard,
         runTask,
         invoke
@@ -285,16 +286,13 @@ export class RouterService {
     }
 
     if (cfg.tool !== false || cfg.mcp === true || mode === 'workflow' || cfg.workflowName) {
-      const registerToolUnder = (toolName: string, mcp: boolean, tool: boolean) =>
-        this.#corge.internals.registry.registerWorkflowTool(toolName, {
-          description,
-          input: inputSchema,
-          mcp,
-          tool,
-          execute: (inp, u) => invoke(inp, u)
-        })
-      registerToolUnder(wfName, cfg.mcp === true, cfg.tool !== false)
-      if (key !== wfName && cfg.tool !== false) registerToolUnder(key, false, true)
+      this.#corge.internals.registry.registerWorkflowTool(wfName, {
+        description,
+        input: inputSchema,
+        mcp: cfg.mcp === true,
+        tool: cfg.tool !== false,
+        execute: (inp, u) => invoke(inp, u)
+      })
     }
   }
 
@@ -327,10 +325,10 @@ export class RouterService {
       const authLevel = cfg.auth ?? 'user'
       const role = this.#corge.internals.auth.resolveUserRole(userId, explicitRole ?? (c?.get('userRole') as DbRole | undefined))
 
-      if (authLevel !== 'public' && authLevel !== 'none' && authLevel !== false && !userId) {
+      if (authLevel !== 'public' && !userId) {
         return this.#corge.errors.httpError(401, 'Unauthorized', 'UNAUTHORIZED')
       }
-      if ((authLevel === 'admin' || authLevel === 'api-key') && role !== 'admin' && userId !== CORGE_CONFIG.auth.adminUserId) {
+      if (authLevel === 'admin' && role !== 'admin' && userId !== CORGE_CONFIG.auth.adminUserId) {
         return this.#corge.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
       }
 
@@ -339,7 +337,7 @@ export class RouterService {
       const parsed = cfg.input ? cfg.input.parse(rawInput ?? {}) : rawInput
 
       return this.#corge.internals.context.run({ env, userId, role }, () =>
-        this.#executeRouteCore({ key, wfName, cfg, mode, runTask, parseOut, env, userId, role, parsed, parsedParams, parsedQuery, rawBody: opts?.rawBody, c, wait: opts?.wait !== false })
+        this.#executeRoute({ key, wfName, cfg, mode, runTask, parseOut, env, userId, role, parsed, parsedParams, parsedQuery, rawBody: opts?.rawBody, c, wait: opts?.wait !== false })
       )
     }
 
@@ -451,22 +449,22 @@ export class RouterService {
       .map(([k, v]) => `${k} (${v.description})`)
       .join('; ')
 
-    const rawCoreRoutes: Record<CorgeRouteId, Partial<RouteConfig>> = {
+    const rawCorgeRoutes: Record<CorgeRouteId, Partial<RouteConfig>> = {
       health: buildHealthRoute(),
-      ...coreAuthRoutes,
-      ...coreFilesRoutes,
-      ...coreChatRoutes,
-      ...coreAttachmentsRoutes,
-      ...coreEmailRoutes,
-      ...corePaymentRoutes,
+      ...corgeAuthRoutes,
+      ...corgeFilesRoutes,
+      ...corgeChatRoutes,
+      ...corgeAttachmentsRoutes,
+      ...corgeEmailRoutes,
+      ...corgePaymentRoutes,
       'routes.list': buildRoutesListRoute(() => routeRegistryItems),
       'tasks.status': buildTaskStatusRoute(),
       'tasks.signal': buildTaskSignalRoute(),
       'tasks.cancel': buildTaskCancelRoute()
     }
 
-    const allRoutes = mergeCoreAndDomainRoutes(
-      rawCoreRoutes,
+    const allRoutes = mergeCorgeAndDomainRoutes(
+      rawCorgeRoutes,
       overrides,
       attachmentTypesDesc,
       init.routes ?? {}
@@ -478,18 +476,16 @@ export class RouterService {
 
     this.#corge.internals.workflows.registerRuntime(workflowRegistry)
 
-    const createApp = (isDev = false) => this.#createHonoApp(isDev, allRoutes, routeInvokers)
-    const app = createApp(false)
-    const devApp = createApp(true)
-    const cloudFunctions = this.#createCloudFunctions(app, devApp, workflowRegistry)
+    const app = this.#createHonoApp(false, allRoutes, routeInvokers)
+    const devApp = this.#createHonoApp(true, allRoutes, routeInvokers)
+    const functions = this.#createCloudFunctions(app, devApp, workflowRegistry)
 
     return {
-      createApp,
       app,
       devApp,
+      functions,
       workflowRegistry,
-      agents: this.#corge.internals.registry.getRegisteredAgents(),
-      ...cloudFunctions
+      agents: this.#corge.internals.registry.getRegisteredAgents()
     }
   }
 }

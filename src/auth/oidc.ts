@@ -174,60 +174,9 @@ export class AuthOidcEngine {
     }
   }
 
-  #tryIdentityToolkitIdp = async (
-    key: string,
-    provider: OAuthProvider,
-    idToken: string,
-    nonce?: string,
-    accessToken?: string
-  ): Promise<{
-    firebaseIdToken: string
-    localId: string
-    federatedId?: string
-    email?: string
-    emailVerified?: boolean
-    displayName?: string
-    photoUrl?: string
-  } | null> => {
-    try {
-      const providerId = provider === 'apple' ? 'apple.com' : 'google.com'
-      const params = new URLSearchParams({ providerId })
-      if (idToken) params.set('id_token', idToken)
-      if (accessToken) params.set('access_token', accessToken)
-      if (nonce) params.set('rawNonce', nonce)
-
-      const { ok, data } = await fetchIdentityToolkit<{
-        idToken?: string
-        localId?: string
-        federatedId?: string
-        email?: string
-        emailVerified?: boolean
-        displayName?: string
-        photoUrl?: string
-      }>('accounts:signInWithIdp', key, {
-        postBody: params.toString(),
-        requestUri: 'http://localhost',
-        returnIdpCredential: true,
-        returnSecureToken: true
-      })
-      if (!ok || !data.idToken || !data.localId) return null
-      return {
-        firebaseIdToken: data.idToken,
-        localId: data.localId,
-        ...(data.federatedId ? { federatedId: data.federatedId } : {}),
-        ...(data.email ? { email: data.email.trim().toLowerCase() } : {}),
-        ...(typeof data.emailVerified === 'boolean' ? { emailVerified: data.emailVerified } : {}),
-        ...(data.displayName ? { displayName: data.displayName } : {}),
-        ...(data.photoUrl ? { photoUrl: data.photoUrl } : {})
-      }
-    } catch {
-      return null
-    }
-  }
-
   #resolveOrCreateSocialUser = async (
     providerKey: string,
-    oidcClaims: VerifiedOidcClaims & { _idpResult?: { localId: string } },
+    oidcClaims: VerifiedOidcClaims,
     resolvedName: string | undefined,
     resolvedAvatar: string | undefined,
     isDev: boolean
@@ -251,10 +200,6 @@ export class AuthOidcEngine {
       if (userRecord && !userRecord.emailVerified) {
         userRecord = await auth.updateUser(userRecord.uid, { emailVerified: true }).catch(() => userRecord)
       }
-    }
-
-    if (!userRecord && oidcClaims._idpResult?.localId) {
-      userRecord = await auth.getUser(oidcClaims._idpResult.localId).catch(() => undefined)
     }
 
     if (!userRecord) {
@@ -301,22 +246,9 @@ export class AuthOidcEngine {
   }
 
   signInSocial = async (raw: SocialSignInInput): Promise<{ user: AuthUser; sessionCookie: string }> => {
-    const { provider, idToken, nonce, accessToken, profile } = socialSignInInput.parse(raw)
+    const { provider, idToken, nonce, profile } = socialSignInInput.parse(raw)
     const targetIsDev = this.#corge.env.isDev
-
-    const oidcClaims = await this.verifyOidcIdToken(provider, idToken, nonce, targetIsDev).catch(async (err) => {
-      if (err instanceof HTTPException) throw err
-      const idp = await this.#tryIdentityToolkitIdp(this.#corge.env.WEB_API_KEY, provider, idToken, nonce, accessToken)
-      if (!idp) throw err
-      return {
-        sub: idp.federatedId ?? idp.localId,
-        email: idp.email ?? null,
-        emailVerified: Boolean(idp.emailVerified),
-        ...(idp.displayName ? { name: idp.displayName } : {}),
-        ...(idp.photoUrl ? { picture: idp.photoUrl } : {}),
-        _idpResult: idp
-      } as VerifiedOidcClaims & { _idpResult?: { localId: string } }
-    })
+    const oidcClaims = await this.verifyOidcIdToken(provider, idToken, nonce, targetIsDev)
 
     const providerKey = `${provider}:${oidcClaims.sub}`
     const resolvedName = profile?.name ?? oidcClaims.name

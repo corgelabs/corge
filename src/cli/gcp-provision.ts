@@ -241,7 +241,7 @@ const ensureCloudTasksShardQueues = async (
 ): Promise<void> => {
   const shardsCount = Math.max(1, CORGE_CONFIG.tasks.defaultShardsCount)
   if (shardsCount <= 1) return
-  const region = process.env.GCP_REGION || CORGE_CONFIG.region
+  const region = CORGE_CONFIG.region
   const baseQueueId = target === 'prod' ? `${project}-tasks` : `${project}-tasks-dev`
   const parentLoc = `projects/${project}/locations/${region}`
 

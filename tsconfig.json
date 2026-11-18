@@ -2,7 +2,6 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "paths": {
-      "@corge": ["./src/index.ts"],
       "@corgelabs/corge": ["./src/index.ts"]
     }
   },

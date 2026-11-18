@@ -39,9 +39,7 @@ export const isBaseRouteConfig = (v: unknown): v is BaseRouteConfig =>
   Boolean(v && typeof v === 'object' && ('path' in v || 'mode' in v || 'auth' in v || 'handler' in v))
 
 export const isRespondAsyncPreferred = (c: Context<AppEnv>): boolean =>
-  c.req.query('async') === 'true' ||
-  c.req.query('wait') === 'false' ||
-  /\brespond-async\b/i.test(c.req.header('prefer') ?? '')
+  c.req.query('wait') === 'false' || /\brespond-async\b/i.test(c.req.header('prefer') ?? '')
 
 export class RouterGuardEngine {
   readonly #corge: Corge
@@ -58,7 +56,7 @@ export class RouterGuardEngine {
     const rl: RateLimitConfig = isBaseRouteConfig(cfgOrLimit)
       ? cfgOrLimit.rateLimit !== undefined
         ? cfgOrLimit.rateLimit
-        : cfgOrLimit.auth === 'public' || cfgOrLimit.auth === 'none' || cfgOrLimit.auth === false
+        : cfgOrLimit.auth === 'public'
           ? CORGE_CONFIG.limits.httpIp
           : CORGE_CONFIG.limits.httpUser
       : cfgOrLimit
@@ -78,15 +76,7 @@ export class RouterGuardEngine {
     c: Context<AppEnv>,
     cfgOrAuth: BaseRouteConfig | AuthLevel = 'user'
   ): Promise<EntryId> => {
-    const rawAuth: AuthLevel = isBaseRouteConfig(cfgOrAuth) ? (cfgOrAuth.auth ?? 'user') : cfgOrAuth
-    const authLevel =
-      rawAuth === 'none' || rawAuth === false
-        ? 'public'
-        : rawAuth === 'authenticated'
-          ? 'user'
-          : rawAuth === 'api-key'
-            ? 'admin'
-            : rawAuth
+    const authLevel: AuthLevel = isBaseRouteConfig(cfgOrAuth) ? (cfgOrAuth.auth ?? 'user') : cfgOrAuth
 
     if (authLevel === 'public') {
       c.set('userId', '')
@@ -116,9 +106,6 @@ export class RouterGuardEngine {
     if (isMasterKey(bearer, expectedKey)) {
       await this.#corge.internals.auth.authWarm
       return finishAuth(CORGE_CONFIG.auth.adminUserId, 'admin')
-    }
-    if (rawAuth === 'api-key') {
-      return this.#corge.errors.httpError(401, 'Valid API key required', 'UNAUTHORIZED')
     }
 
     let verified: { uid: EntryId; role: DbRole }
@@ -276,21 +263,26 @@ export class RouterGuardEngine {
   }
 }
 
-export const mergeCoreAndDomainRoutes = (
-  rawCoreRoutes: Record<CorgeRouteId, Partial<RouteConfig>>,
+export const mergeCorgeAndDomainRoutes = (
+  rawCorgeRoutes: Record<CorgeRouteId, Partial<RouteConfig>>,
   overrides: CorgeRouteOverrides,
   attachmentTypesDesc: string,
   domainRouteDefs: Record<string, RouteConfig<any, any, any, any>>
 ): Record<string, RouteConfig> => {
-  const coreRoutes = Object.fromEntries(
+  const corgeRoutes = Object.fromEntries(
     (Object.keys(CORGE_ROUTE_DEFAULTS) as CorgeRouteId[]).map((id) => {
       const merged = {
         mcp: false,
         ...CORGE_ROUTE_DEFAULTS[id],
-        ...rawCoreRoutes[id],
-        ...(id === 'attachments.scan' && attachmentTypesDesc
+        ...rawCorgeRoutes[id],
+        ...(id === 'attachments.scan'
           ? {
-              description: `OCR + classify + extract structured fields for a single attachment ref. Recognised types: ${attachmentTypesDesc}; or other.`
+              timeout: `${CORGE_CONFIG.tasks.scanDeadlineSeconds}s`,
+              ...(attachmentTypesDesc
+                ? {
+                    description: `OCR + classify + extract structured fields for a single attachment ref. Recognised types: ${attachmentTypesDesc}; or other.`
+                  }
+                : {})
             }
           : {}),
         ...(overrides[id] ?? {})
@@ -315,5 +307,5 @@ export const mergeCoreAndDomainRoutes = (
     } as RouteConfig
   }
 
-  return { ...coreRoutes, ...domainRoutes }
+  return { ...corgeRoutes, ...domainRoutes }
 }

@@ -332,9 +332,6 @@ export const resolvePurchaseItem = (
     plan?: string
     custom?: CustomLineItem
     quantity?: number
-    amount?: number
-    currency?: string
-    description?: string
     metadata?: Record<string, string>
   },
   userId: string,
@@ -379,16 +376,13 @@ export const resolvePurchaseItem = (
       metadata: { ...plan.metadata, ...input.metadata, userId, planId: plan.id }
     }
   }
-  const c = input.custom
-  const amount = c?.amount ?? input.amount ?? 0
-  const name = c?.name ?? input.description ?? 'Custom Purchase'
-  const description = c?.description ?? input.description
+  const c = input.custom!
   return {
     kind: 'custom',
-    name,
-    ...(description ? { description } : {}),
-    amount,
-    currency: (c?.currency ?? input.currency ?? defaultCurrency).toLowerCase(),
+    name: c.name,
+    ...(c.description ? { description: c.description } : {}),
+    amount: c.amount,
+    currency: (c.currency ?? defaultCurrency).toLowerCase(),
     quantity,
     metadata: { ...input.metadata, userId }
   }

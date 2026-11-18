@@ -10,7 +10,6 @@ import {
   setRecoveryEmailBody,
   verifyEmailBody,
   verifyRecoveryEmailBody,
-  type AuthEmailPurpose,
   type AuthTokenPurpose,
   type AuthUser,
   type CompleteAccountRecoveryInput,
@@ -33,9 +32,6 @@ export class AuthRecoveryEngine {
     this.#corge = corgeClient
     this.#session = session
   }
-
-  getLastDevEmail = (to: string, purpose: AuthEmailPurpose): TransactionalEmailPayload | undefined =>
-    this.#corge.internals.emails.getLastDevEmail(to, purpose)
 
   #issueAuthToken = async (
     userId: EntryId,

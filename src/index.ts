@@ -19,6 +19,7 @@ import {
   defineAgents,
   defineContext,
   openaiCompletionsBody,
+  saveChatBody,
   streamChatBody
 } from './chat'
 import {
@@ -62,7 +63,7 @@ import {
   customerBillingSummarySchema, definePlans, defineProducts, directChargeInput, getPlanDefinition,
   getProductDefinition, getRegisteredPlans, getRegisteredProducts, invoiceResultSchema, paymentLinkResultSchema,
   paymentWebhookParamsSchema, quotaCheckResultSchema, recordUsageInput, registerPlans, registerProducts,
-  subscribeInput, subscribeResultSchema, subscriptionRecordSchema, usageStatusResultSchema, usageSummarySchema
+  subscribeInput, subscribeResultSchema, subscriptionRecordSchema, usageStatusResultSchema
 } from './payments'
 import {
   CORGE_ROUTE_DEFAULTS, RouterService, defineRoute, defineRouteOverrides, defineRoutes, type CorgeAppInit
@@ -218,6 +219,7 @@ export class Corge {
     scanAttachmentOutput,
     processAttachmentsInput,
     processAttachmentsOutput,
+    saveChatBody,
     streamChatBody,
     openaiCompletionsBody,
     errorBodySchema,
@@ -246,7 +248,6 @@ export class Corge {
     subscriptionRecordSchema,
     customerBillingSummarySchema,
     usageStatusResultSchema,
-    usageSummarySchema,
     quotaCheckResultSchema
   }
 
@@ -265,7 +266,8 @@ export class Corge {
         startChatStreamTurn: this.#chat.internals.startChatStreamTurn,
         saveChat: this.#chat.internals.saveChat,
         streamChatSse: this.#chat.internals.streamChatSse,
-        scanShortCircuit: this.#attachments.internals.scanShortCircuit
+        scanShortCircuit: this.#attachments.internals.scanShortCircuit,
+        processShortCircuit: this.#attachments.internals.processShortCircuit
       },
       registry: {
         registerCollections,
@@ -308,6 +310,7 @@ export const corge = new Corge()
 export namespace corge {
   export namespace types {
     export type AppBindings = import('./config').AppBindings
+    export type CorgeConfig = import('./config').CorgeConfig
     export type DbAction = import('./config').DbAction
     export type DbRole = import('./config').DbRole
     export type CorgeAppInit = import('./router').CorgeAppInit
@@ -329,7 +332,6 @@ export namespace corge {
     export type FileRef = import('./db').FileRef
     export type FileScan = import('./db').FileScan
     export type InsertData<N extends import('./db').CollectionName> = import('./db').InsertData<N>
-    export type PaginatedList<T> = import('./db').PaginatedList<T>
     export type SelectModel<N extends import('./db').CollectionName> =
       import('./db').SelectModel<N>
     export type UpdateData<N extends import('./db').CollectionName> = import('./db').UpdateData<N>
@@ -413,7 +415,6 @@ export namespace corge {
     export type SubscriptionRecord = import('./payments').SubscriptionRecord
     export type CustomerBillingSummary = import('./payments').CustomerBillingSummary
     export type UsageStatusResult = import('./payments').UsageStatusResult
-    export type UsageSummary = import('./payments').UsageSummary
     export type QuotaCheckResult = import('./payments').QuotaCheckResult
     export type RecordUsageInput = import('./payments').RecordUsageInput
   }
@@ -423,6 +424,3 @@ export const useCorge = (): Corge => {
   const active = corgeStorage.getStore()
   return active ? new Corge(active) : corge
 }
-
-export { CORGE_CONFIG }
-export { getSecrets, loadGcpSecrets } from './cli/env'

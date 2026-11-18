@@ -1,6 +1,6 @@
 # Corge (`@corgelabs/corge`) — Complete Architecture, Methods Map & Per-Function Specification (`SPEC.md`)
 
-> **Version**: 3.0 (Flat Domain Barrel & `<= 500 LOC` Class-Composed Architecture, Methods Map & Per-Function Specification)  
+> **Version**: 4.0 (Flat Domain Barrel & `<= 500 LOC` Class-Composed Architecture, Methods Map & Per-Function Specification)  
 > **Runtime Stack**: Node.js 24 LTS (`nodejs24` GA on Cloud Functions 2nd Gen) · Hono · Cloud Tasks · Cloud Firestore Enterprise · Firebase Storage · Vertex AI (`claude-haiku-5-5`, `claude-sonnet-5-5`, `gemini-3.5-flash-lite`, `text-embedding-005`) · Google Cloud Document AI (`OCR_PROCESSOR`) · Google Gemini Decisions API (`gemini-decision-1`) · Jina Reader (`r.jina.ai`)
 
 ---
@@ -36,11 +36,11 @@
 
 ## 1. Corge Design Philosophy & 4-Tier Visibility Model
 
-### 1.1 Single `@corge` Barrel + Ambient Context Propagation (`corge.*` & `useCorge()`)
+### 1.1 Single `@corgelabs/corge` Barrel + Ambient Context Propagation (`corge.*` & `useCorge()`)
 
-1. **Single Public Entrypoint (`import { Corge, corge, useCorge } from '@corge'`)**:
+1. **Single Public Entrypoint (`import { Corge, corge, useCorge } from '@corgelabs/corge'`)**:
    - `src/index.ts` is the sole public entrypoint defining `Corge`, `corge`, `useCorge`, and the `corge.types.*` namespace, composed directly from domain `*Service` classes (`ErrorsService`, `ResilienceService`, `DbService`, `FilesService`, `AiService`, `AttachmentsService`, `AuthService`, `ChatService`, `TasksService`, `RouterService`).
-   - Application code (`src/config/*`, `src/routes/*`, `src/services/*`, `src/utils/*`, `src/index.ts`) imports exclusively from `@corge` and never reaches into internal sub-paths (`@corge/db/*`, `@corge/tasks/*`, etc.).
+   - Application code (`src/config/*`, `src/routes/*`, `src/services/*`, `src/utils/*`, `src/index.ts`) imports exclusively from `@corgelabs/corge` and never reaches into internal sub-paths (`@corgelabs/corge/db/*`, `@corgelabs/corge/tasks/*`, etc.).
 2. **Ambient Execution State via `AsyncLocalStorage` + Class Composition (`this.#corge`)**:
    - Every HTTP route, MCP tool invocation, AI agent tool call, and Cloud Tasks workflow worker executes inside `runWithCorge({ env, userId, role, step }, fn)`.
    - Calling `corge.<ns>.<method>()` on the singleton `corge` (or `const corgeClient = useCorge()`) dynamically resolves `#state` from `corgeStorage.getStore()` → `tasks.getActiveWorkflowStore()` → fallback dev/prod admin context with zero prop-drilling.
@@ -72,59 +72,59 @@ Every domain in `src/<domain>/` is a flat directory (`0` nested subdirectories),
 ```text
 src/
 ├── index.ts                      # [Entrypoint & Client] Corge class composed from *Service classes, ALS state (corgeStorage), corge singleton, corge.types namespace, useCorge()
-├── config.ts                     # [Config] CORGE_CONFIG, defineConfig(), SECRET_NAMES, CoreConfig/AppBindings/RbacConfig types
+├── config.ts                     # [Config] CORGE_CONFIG, defineConfig(), SECRET_NAMES, CorgeConfig/AppBindings/RbacConfig types
 ├── ai/
 │   ├── index.ts                  # [AI Barrel] Re-exports schema, AiService
 │   ├── schema.ts                 # [AI] Pure types & schemas (DecisionQuestion, DecisionAnswer, DecideResult, VisionOptions, VisionResult, AiGenerateOptions, AiGenerateResult)
 │   ├── utils.ts                  # [AI] Pure formatters & normalizers (formatDocAiPages, toGeminiDecisionQuestions, normalizeGeminiDecisionAnswers, buildVertexDecideFallbackSpec)
 │   └── service.ts                # [AI] AiService (decide, vision, generate, embed) + Google Document AI OCR, Gemini Decisions API & Vertex Google/Anthropic clients
 ├── attachments/
-│   ├── index.ts                  # [Attachments Barrel] Re-exports schema, AttachmentsService, coreAttachmentsRoutes
+│   ├── index.ts                  # [Attachments Barrel] Re-exports schema, AttachmentsService, corgeAttachmentsRoutes
 │   ├── schema.ts                 # [Attachments] Pure Zod schemas, types & AttachmentTypeSpec registry
 │   ├── utils.ts                  # [Attachments] schemaFor(), parseFields(), extractAttachmentTasks(), DEFECT_QUESTIONS
 │   ├── service.ts                # [Attachments] AttachmentsService (scan, process, classify, scanShortCircuit)
-│   └── routes.ts                 # [Attachments] coreAttachmentsRoutes ('attachments.scan', 'attachments.process')
+│   └── routes.ts                 # [Attachments] corgeAttachmentsRoutes ('attachments.scan', 'attachments.process')
 ├── auth/
-│   ├── index.ts                  # [Auth Barrel] Re-exports schema, AuthService, coreAuthRoutes
+│   ├── index.ts                  # [Auth Barrel] Re-exports schema, AuthService, corgeAuthRoutes
 │   ├── schema.ts                 # [Auth] Pure Zod schemas & static types (AuthUser, AuthTokenDoc, LinkedProvider)
 │   ├── utils.ts                  # [Auth] resolveUserRole(), hashToken(), mapUserRecord(), parseJwtSegment()
 │   ├── session.ts                # [Auth] AuthSessionEngine (LRU tokenCache, prod/dev revocation watermarks, session cookies, custom tokens)
 │   ├── oidc.ts                   # [Auth] AuthOidcEngine (strict RS256 JWK verification, fail-closed claim check, account linking)
 │   ├── recovery.ts               # [Auth] AuthRecoveryEngine (OTP/token issuance, email verification, password reset, account recovery)
 │   ├── service.ts                # [Auth] AuthService facade + bounded GDPR eraseUser (runChunked 25)
-│   └── routes.ts                 # [Auth] coreAuthRoutes (18 built-in authentication & user management route handlers)
+│   └── routes.ts                 # [Auth] corgeAuthRoutes (18 built-in authentication & user management route handlers)
 ├── chat/
-│   ├── index.ts                  # [Chat Barrel] Re-exports schema, ChatService, coreChatRoutes, mcpRoute
+│   ├── index.ts                  # [Chat Barrel] Re-exports schema, ChatService, corgeChatRoutes, mcpRoute
 │   ├── schema.ts                 # [Chat] Pure Zod schemas & static types (AgentConfig, UserContext, ChatMetadataDoc, ChatMessageDoc)
 │   ├── utils.ts                  # [Chat] SSRF guard (isSafePublicUrl), message/attachment parsers, dynamic context & UI stream builders
 │   ├── context.ts                # [Chat] ChatContextEngine (InfoBase Gemini Decisions selector, vector recall, sliding window, userContext)
 │   ├── stream.ts                 # [Chat] ChatStreamEngine (SSE turn execution, attachment staging, activeGenerations lock, cancel)
 │   ├── service.ts                # [Chat] ChatService facade (stream, ask, retrieveContext, getContext, saveChat, messages, cancel)
-│   └── routes.ts                 # [Chat] coreChatRoutes + MCP JSON-RPC handler (mcpRoute) + OpenAI-compatible endpoints
+│   └── routes.ts                 # [Chat] corgeChatRoutes + MCP JSON-RPC handler (mcpRoute) + OpenAI-compatible endpoints
 ├── db/
 │   ├── index.ts                  # [DB Barrel] Re-exports schema, DbService
-│   ├── schema.ts                 # [DB] Pure Zod schemas, coreCollections (9 collections), collectionRegistry, defineCollection(s)
+│   ├── schema.ts                 # [DB] Pure Zod schemas, corgeCollections (9 collections), collectionRegistry, defineCollection(s)
 │   ├── utils.ts                  # [DB] Pure RBAC scope resolvers, Firestore normalizers, cursor pagination & runChunked helpers
 │   └── service.ts                # [DB] DbService (prod/dev Firestore & Bucket singletons, getGcpAccessToken, RBAC CRUD, GDPR cascade)
 ├── emails/
-│   ├── index.ts                  # [Emails Barrel] Re-exports schema, EmailsService, coreEmailRoutes
+│   ├── index.ts                  # [Emails Barrel] Re-exports schema, EmailsService, corgeEmailRoutes
 │   ├── schema.ts                 # [Emails] Pure Zod schemas, EmailTemplateDefinition, defineEmailTemplates, emailTemplateRegistry
 │   ├── utils.ts                  # [Emails] Stateless Resend/SendGrid/Firebase OOB callers, Svix/Twilio HMAC-SHA256 webhook verifiers, template builders
 │   ├── service.ts                # [Emails] EmailsService (send, sendBatch, sendAuthEmail, getLog, listLogs, isSuppressed, webhook processor)
-│   └── routes.ts                 # [Emails] coreEmailRoutes ('emails.send', 'emails.batch', 'emails.logs', 'emails.webhook')
+│   └── routes.ts                 # [Emails] corgeEmailRoutes ('emails.send', 'emails.batch', 'emails.logs', 'emails.webhook')
 ├── files/
-│   ├── index.ts                  # [Files Barrel] Re-exports schema, FilesService, coreFilesRoutes
+│   ├── index.ts                  # [Files Barrel] Re-exports schema, FilesService, corgeFilesRoutes
 │   ├── schema.ts                 # [Files] Content-addressed FileRef (<userId>_<sha256_24>), magic-byte refined FileBody, SignedUploadInput
 │   ├── utils.ts                  # [Files] canAccessFile() O(1) prefix check & hasValidMagicBytes() signature validator
 │   ├── service.ts                # [Files] FilesService (SDK-level #assertAccess RBAC, upload with Saga rollback, V4 signed URLs, CRUD)
-│   └── routes.ts                 # [Files] coreFilesRoutes ('files.list', 'files.upload', 'files.get', 'files.delete')
+│   └── routes.ts                 # [Files] corgeFilesRoutes ('files.list', 'files.upload', 'files.get', 'files.delete')
 ├── payments/
-│   ├── index.ts                  # [Payments Barrel] Re-exports schema, PaymentsService, corePaymentRoutes
+│   ├── index.ts                  # [Payments Barrel] Re-exports schema, PaymentsService, corgePaymentRoutes
 │   ├── schema.ts                 # [Payments] Pure Zod schemas, PlanDefinition, ProductDefinition, definePlans, defineProducts & registries
 │   ├── utils.ts                  # [Payments] Stateless Stripe/Dodo REST helpers, encodeStripeForm, HMAC-SHA256 webhook verifiers & normalizers
 │   ├── billing.ts                # [Payments] PaymentsBillingEngine (ensureCustomer, applyProductGrants, createCheckout, createPaymentLink, createInvoice, charge, subscribe, changeSubscriptionTier, cancelSubscription)
 │   ├── service.ts                # [Payments] PaymentsService (billing facade, getSubscription, getUsage, checkQuota, recordUsage, meter ingestion & webhook processor)
-│   └── routes.ts                 # [Payments] corePaymentRoutes (9 built-in payment, subscription, status & webhook routes)
+│   └── routes.ts                 # [Payments] corgePaymentRoutes (9 built-in payment, subscription, status & webhook routes)
 ├── router/
 │   ├── index.ts                  # [Router Barrel] Re-exports schema, RouterService
 │   ├── schema.ts                 # [Router] RouteConfig, RouteExecutionContext, ResourceGuardConfig, defineRoute(s), CORGE_ROUTE_DEFAULTS (51 routes)
@@ -161,9 +161,9 @@ src/
 | **`corge.role`** | `src/index.ts` | `Corge.prototype.role` | `get role(): DbRole` | Caller RBAC role (`'admin' \| 'user' \| 'anon'`). |
 | **`corge.caller`** | `src/index.ts` | `Corge.prototype.caller` | `get caller(): { userId: EntryId; role: DbRole }` | Tuple object passed to task/chat ownership checks. |
 | **`corge.step`** | `src/index.ts` | `Corge.prototype.step` | `get step(): StepRunner` | Active `StepRunner` from `#state.step` or `TasksService.useStep()`. |
-| **`corge.config`** | `src/config.ts` | `CORGE_CONFIG` | `readonly config: CoreConfig` | Live mutable platform configuration singleton. |
+| **`corge.config`** | `src/config.ts` | `CORGE_CONFIG` | `readonly config: CorgeConfig` | Live mutable platform configuration singleton. |
 | **`corge.createApp`** | `src/router/service.ts` | `RouterService.createApp` | `(opts?: CorgeAppInit) => CoreAppReturn` | Compiles collections, agents, context, routes, Hono apps, and Cloud Functions. |
-| **`corge.define.config`** | `src/config.ts` | `defineConfig` | `(overrides?: DeepPartial<CoreConfig>) => CoreConfig` | Deep-merges config overrides and recomputes GCP URIs/buckets if `gcpProject` changes. |
+| **`corge.define.config`** | `src/config.ts` | `defineConfig` | `(overrides?: DeepPartial<CorgeConfig>) => CorgeConfig` | Deep-merges config overrides and recomputes GCP URIs/buckets if `gcpProject` changes. |
 | **`corge.define.route`** | `src/router/schema.ts` | `defineRoute` | `<C extends RouteConfig>(config: C) => C` | Declares a typed HTTP/Workflow/Agent/MCP route (defaults `mcp: false`). |
 | **`corge.define.routes`** | `src/router/schema.ts` | `defineRoutes` | `<T extends Record<string, RouteConfig>>(routes: T) => T` | Declares a map of domain routes. |
 | **`corge.define.routeOverrides`** | `src/router/schema.ts` | `defineRouteOverrides` | `<T extends CorgeRouteOverrides>(overrides: T) => T` | Customizes `auth`, `rateLimit`, `guard`, `mcp`, `tool`, `timeout`, `retry` on built-in routes. |
@@ -178,7 +178,7 @@ src/
 | **`corge.define.products`** | `src/payments/schema.ts` | `defineProducts` | `<T extends ProductsMap>(products: T) => T` | Declares one-time purchasable products & token/credit packs with automatic `grants`. |
 | **`corge.db.create`** | `src/db/service.ts` | `DbService.create` | `<N>(name: N, data: InsertData<N>, ctx?: DbCallContext) => Promise<SelectModel<N>>` | Validates schema, checks RBAC `'create'` permission, and writes new Firestore doc. |
 | **`corge.db.read`** | `src/db/service.ts` | `DbService.read` | `<N>(name: N, id: EntryId, includeDeleted?: boolean, ctx?: DbCallContext) => Promise<SelectModel<N> \| undefined>` | Reads doc by ID, normalizes Timestamps, and enforces RBAC `'read'` scope. |
-| **`corge.db.list`** | `src/db/service.ts` | `DbService.list` | `<N>(name: N, options?: DbListOptions<SelectModel<N>>, ctx?: DbCallContext) => Promise<PaginatedList<SelectModel<N>>>` | Queries/batches docs with RBAC auto-scoping, index-fallback sorting, and `nextCursor`. |
+| **`corge.db.list`** | `src/db/service.ts` | `DbService.list` | `<N>(name: N, options?: DbListOptions<SelectModel<N>>, ctx?: DbCallContext) => Promise<SelectModel<N>[]>` | Queries/batches docs with RBAC auto-scoping and index-fallback sorting. |
 | **`corge.db.listPage`** | `src/db/service.ts` | `DbService.listPage` | `<N>(name: N, options?: DbListOptions<SelectModel<N>>, ctx?: DbCallContext) => Promise<DbListPage<SelectModel<N>>>` | Wraps `list` returning explicit `{ items, nextCursor }`. |
 | **`corge.db.update`** | `src/db/service.ts` | `DbService.update` | `<N>(name: N, id: EntryId, patch: UpdateData<N>, ctx?: DbCallContext) => Promise<{ id: EntryId; updated: true }>` | Strips immutable/owner fields, validates partial schema, enforces RBAC `'write'`, updates doc. |
 | **`corge.db.delete`** | `src/db/service.ts` | `DbService.delete` | `<N>(name: N, id: EntryId, ctx?: DbCallContext) => Promise<{ id: EntryId; deleted: true }>` | Soft-deletes doc (`deleted: true`) after RBAC `'delete'` check. |
@@ -189,7 +189,7 @@ src/
 | **`corge.files.getSignedUploadUrl`** | `src/files/service.ts` | `FilesService.getSignedUploadUrl` | `(input: SignedUploadInput, userId?: EntryId, expiresInMs?: number) => Promise<SignedUploadUrlResult>` | Generates V4 GCS signed `PUT` URL with automatic SHA-256 deduplication check. |
 | **`corge.files.getSignedDownloadUrl`** | `src/files/service.ts` | `FilesService.getSignedDownloadUrl` | `(ref: FileRef, expiresInMs?: number) => Promise<SignedDownloadUrlResult>` | Verifies `file` metadata exists and generates V4 GCS signed `GET` URL. |
 | **`corge.files.get`** | `src/files/service.ts` | `FilesService.get` | `(ref: FileRef) => Promise<FileBody>` | Downloads file bytes + metadata in parallel and validates `FileBody`. |
-| **`corge.files.list`** | `src/files/service.ts` | `FilesService.list` | `(options?: DbListOptions<SelectModel<'file'>>) => Promise<PaginatedList<SelectModel<'file'>>>` | Lists `file` metadata records (auto-scoped to `corge.userId` for non-admins). |
+| **`corge.files.list`** | `src/files/service.ts` | `FilesService.list` | `(options?: DbListOptions<SelectModel<'file'>>) => Promise<SelectModel<'file'>[]>` | Lists `file` metadata records (auto-scoped to `corge.userId` for non-admins). |
 | **`corge.files.download`** | `src/files/service.ts` | `FilesService.download` | `(ref: FileRef) => Promise<Buffer>` | Downloads raw `Buffer` from Firebase Storage bucket. |
 | **`corge.files.delete`** | `src/files/service.ts` | `FilesService.delete` | `(ref: FileRef) => Promise<{ ref: FileRef; deleted: true }>` | Soft-deletes `file` metadata record in Firestore. |
 | **`corge.files.hardDelete`** | `src/files/service.ts` | `FilesService.hardDelete` | `(ref: FileRef) => Promise<{ ref: FileRef }>` | Permanently deletes file from GCS and Firestore inside a reversible `step` with rollback. |
@@ -229,7 +229,7 @@ src/
 | **`corge.emails.sendBatch`** | `src/emails/service.ts` | `EmailsService.sendBatch` | `(inputs: SendEmailInput[], opts?: EmailCallOptions) => Promise<SendBatchEmailResult>` | Sends up to 100 transactional emails in a single batch (native Resend `/emails/batch` or parallel dispatch). |
 | **`corge.emails.sendAuthEmail`** | `src/emails/service.ts` | `EmailsService.sendAuthEmail` | `(purpose: AuthEmailPurpose, to: string, vars?: Partial<AuthEmailVariables>, opts?: EmailCallOptions) => Promise<SendEmailResult>` | Dispatches a transactional auth email (`verify_email`, `reset_password`, `verify_recovery_email`, `account_recovery`, `welcome`, `security_alert`). |
 | **`corge.emails.getLog`** | `src/emails/service.ts` | `EmailsService.getLog` | `(emailId: EntryId) => Promise<SelectModel<'email_log'> \| undefined>` | Reads an `email_log` delivery audit document by ID. |
-| **`corge.emails.listLogs`** | `src/emails/service.ts` | `EmailsService.listLogs` | `(options?: DbListOptions<SelectModel<'email_log'>>) => Promise<PaginatedList<SelectModel<'email_log'>>>` | Lists `email_log` records with filtering and pagination. |
+| **`corge.emails.listLogs`** | `src/emails/service.ts` | `EmailsService.listLogs` | `(options?: DbListOptions<SelectModel<'email_log'>>) => Promise<SelectModel<'email_log'>[]>` | Lists `email_log` records with filtering and pagination. |
 | **`corge.emails.isSuppressed`** | `src/emails/service.ts` | `EmailsService.isSuppressed` | `(email: string) => Promise<boolean>` | Checks whether a recipient address is on the `email_suppression` bounce/complaint list. |
 | **`corge.payments.createCheckout`** | `src/payments/service.ts` | `PaymentsService.createCheckout` | `(input: CreateCheckoutInput, opts?: PaymentCallOptions) => Promise<CheckoutSessionResult>` | Creates a hosted Stripe/Dodo checkout session for a predefined plan, product, or custom ad-hoc amount. |
 | **`corge.payments.createPaymentLink`** | `src/payments/service.ts` | `PaymentsService.createPaymentLink` | `(input: CreatePaymentLinkInput, opts?: PaymentCallOptions) => Promise<PaymentLinkResult>` | Generates a shareable Stripe/Dodo payment link for a predefined plan, product, or custom ad-hoc amount. |
@@ -242,7 +242,7 @@ src/
 | **`corge.payments.getUsage`** | `src/payments/service.ts` | `PaymentsService.getUsage` | `(userId?: EntryId) => Promise<UsageStatusResult>` | Returns the caller's current billing period AI token and custom metric usage vs plan limits. |
 | **`corge.payments.checkQuota`** | `src/payments/service.ts` | `PaymentsService.checkQuota` | `(metric?: string, requiredAmount?: number, userId?: EntryId, throwOnExceeded?: boolean) => Promise<QuotaCheckResult>` | Evaluates plan quota + bonus balance + overage allowance (throws `402 QUOTA_EXCEEDED` when `throwOnExceeded = true`). |
 | **`corge.payments.recordUsage`** | `src/payments/service.ts` | `PaymentsService.recordUsage` | `(input: RecordUsageInput, opts?: PaymentCallOptions) => Promise<UsageStatusResult>` | Atomically increments `payment_usage`, deducts bonus balances, and ingests overage meter events to Stripe/Dodo. |
-| **`corge.schemas.*`** | Multiple `schema.ts` | 41 Zod Schemas | `{ entryId, fileRef, fileScan, fileScanError, fileBody, fileType, signedUploadInput, processedAttachment, scanAttachmentInput, scanAttachmentOutput, processAttachmentsInput, processAttachmentsOutput, streamChatBody, openaiCompletionsBody, errorBodySchema, emailLogStatusSchema, emailAttachmentInputSchema, sendEmailInputSchema, sendBatchEmailInputSchema, emailLogsQuerySchema, emailWebhookParamsSchema, sendEmailResultSchema, sendBatchEmailResultSchema, createCheckoutInput, createPaymentLinkInput, createInvoiceInput, directChargeInput, subscribeInput, changeTierInput, cancelSubscriptionInput, recordUsageInput, paymentWebhookParamsSchema, checkoutSessionResultSchema, paymentLinkResultSchema, invoiceResultSchema, chargeResultSchema, subscribeResultSchema, subscriptionRecordSchema, customerBillingSummarySchema, usageStatusResultSchema, usageSummarySchema, quotaCheckResultSchema }` | Reusable Zod schemas for route/collection definitions. |
+| **`corge.schemas.*`** | Multiple `schema.ts` | 41 Zod Schemas | `{ entryId, fileRef, fileScan, fileScanError, fileBody, fileType, signedUploadInput, processedAttachment, scanAttachmentInput, scanAttachmentOutput, processAttachmentsInput, processAttachmentsOutput, saveChatBody, streamChatBody, openaiCompletionsBody, errorBodySchema, emailLogStatusSchema, emailAttachmentInputSchema, sendEmailInputSchema, sendBatchEmailInputSchema, emailLogsQuerySchema, emailWebhookParamsSchema, sendEmailResultSchema, sendBatchEmailResultSchema, createCheckoutInput, createPaymentLinkInput, createInvoiceInput, directChargeInput, subscribeInput, changeTierInput, cancelSubscriptionInput, recordUsageInput, paymentWebhookParamsSchema, checkoutSessionResultSchema, paymentLinkResultSchema, invoiceResultSchema, chargeResultSchema, subscribeResultSchema, subscriptionRecordSchema, customerBillingSummarySchema, usageStatusResultSchema, quotaCheckResultSchema }` | Reusable Zod schemas for route/collection definitions. |
 | **`corge.errors.*`** | `src/utils/service.ts` | `ErrorsService` | `{ httpError, nonRetryableError, NonRetryableError, isNonRetryableError, CircuitBreakerOpenError, StaleWorkerEpochError, isStaleWorkerEpochError, parseDuration }` | Structured HTTP errors, non-retryable workflow signals, epoch fence errors, and duration parser. |
 
 ---
@@ -298,7 +298,6 @@ Accessed via the non-enumerable `corge.internals` prototype getter (`src/index.t
 | **`auth`** | `corge.internals.auth.setTokenCache` | `src/auth/session.ts` | `AuthSessionEngine.setTokenCache` | Inserts/updates a verified token in `tokenCache` and starts the 2s background revocation sync timer. |
 | **`auth`** | `corge.internals.auth.recordRevocation` | `src/auth/session.ts` | `AuthSessionEngine.recordRevocation` | Evicts user tokens locally and writes revocation timestamp to `_system/auth_revocations`. |
 | **`auth`** | `corge.internals.auth.syncRevocations` | `src/auth/session.ts` | `AuthSessionEngine.syncRevocations` | Pulls `_system/auth_revocations` (coalesced via global `singleflight`) and evicts revoked tokens. |
-| **`auth`** | `corge.internals.auth.getLastDevEmail` | `src/auth/recovery.ts` | `AuthRecoveryEngine.getLastDevEmail` | Retrieves the latest `TransactionalEmailPayload` sent to `(to, purpose)` from `devEmailOutbox`. |
 | **`auth`** | `corge.internals.auth.registerTestOidcPublicKey` | `src/auth/oidc.ts` | `AuthOidcEngine.registerTestOidcPublicKey` | Registers an RSA JWK public key for offline OIDC ID token verification in dev/test mode. |
 | **`auth`** | `corge.internals.auth.sessionCookie` | `src/config.ts` | `CORGE_CONFIG.auth.sessionCookie` | Cookie name constant (`'session'`). |
 | **`emails`** | `corge.internals.emails.dispatchAuthEmail` | `src/emails/service.ts` | `EmailsService.#dispatchAuthEmail` | Dispatches an auth flow email with `onAuthEmail`/`onSend` hooks, template resolution, and dev outbox capture. |
@@ -312,7 +311,7 @@ Accessed via the non-enumerable `corge.internals` prototype getter (`src/index.t
 
 ### 3.3 Master Built-In HTTP Routes (`CORGE_ROUTE_DEFAULTS` — 51 Endpoints)
 
-All built-in routes are defined in [`src/router/schema.ts`](file:///Users/nikdelvin/Work/bso-ai/src/router/schema.ts) and mounted under `/api` in [`src/router/service.ts`](file:///Users/nikdelvin/Work/bso-ai/src/router/service.ts) (plus `ALL /api/mcp` for the MCP server):
+All built-in routes are defined in [`src/router/schema.ts`](../src/router/schema.ts) and mounted under `/api` in [`src/router/service.ts`](../src/router/service.ts) (plus `ALL /api/mcp` for the MCP server):
 
 | # | `CorgeRouteId` | HTTP Method & Path | Mode | Default `auth` | Default `guard` | `mcp` | `tool` | Backing Handler & File |
 | :-: | :--- | :--- | :---: | :---: | :--- | :---: | :---: | :--- |
@@ -357,7 +356,7 @@ All built-in routes are defined in [`src/router/schema.ts`](file:///Users/nikdel
 | 39 | `'emails.send'` | `POST /api/emails/send` | `'rest'` | `'admin'` | — | `false` | `true` | `corge.emails.send()` (`emails/routes.ts` → `emails/service.ts`) |
 | 40 | `'emails.batch'` | `POST /api/emails/batch` | `'rest'` | `'admin'` | — | `false` | `true` | `corge.emails.sendBatch()` (`emails/routes.ts` → `emails/service.ts`) |
 | 41 | `'emails.logs'` | `GET /api/emails/logs` | `'rest'` | `'admin'` | — | `false` | `true` | `corge.emails.listLogs()` (`emails/routes.ts` → `emails/service.ts`) |
-| 42 | `'emails.webhook'` | `POST /api/emails/webhooks/:provider` | `'rest'` | `'none'` | — | `false` | `false` | `corge.internals.emails.verifyAndProcessWebhook()` (`emails/routes.ts` → `emails/service.ts`) |
+| 42 | `'emails.webhook'` | `POST /api/emails/webhooks/:provider` | `'rest'` | `'public'` | — | `false` | `false` | `corge.internals.emails.verifyAndProcessWebhook()` (`emails/routes.ts` → `emails/service.ts`) |
 | 43 | `'payments.checkout'` | `POST /api/payments/checkout` | `'rest'` | `'user'` | — | `false` | `true` | `corge.payments.createCheckout()` (`payments/routes.ts` → `payments/service.ts`) |
 | 44 | `'payments.paymentLink'` | `POST /api/payments/payment-link` | `'rest'` | `'user'` | — | `false` | `true` | `corge.payments.createPaymentLink()` (`payments/routes.ts` → `payments/service.ts`) |
 | 45 | `'payments.invoice'` | `POST /api/payments/invoice` | `'rest'` | `'user'` | — | `false` | `true` | `corge.payments.createInvoice()` (`payments/routes.ts` → `payments/service.ts`) |
@@ -366,7 +365,7 @@ All built-in routes are defined in [`src/router/schema.ts`](file:///Users/nikdel
 | 48 | `'payments.changeTier'` | `POST /api/payments/subscription/change-tier` | `'rest'` | `'user'` | — | `false` | `true` | `corge.payments.changeSubscriptionTier()` (`payments/routes.ts` → `payments/service.ts`) |
 | 49 | `'payments.cancelSubscription'` | `POST /api/payments/subscription/cancel` | `'rest'` | `'user'` | — | `false` | `true` | `corge.payments.cancelSubscription()` (`payments/routes.ts` → `payments/service.ts`) |
 | 50 | `'payments.status'` | `GET /api/payments/status` | `'rest'` | `'user'` | — | `false` | `true` | `{ subscription: corge.payments.getSubscription(), usage: corge.payments.getUsage() }` (`payments/routes.ts`) |
-| 51 | `'payments.webhook'` | `POST /api/payments/webhooks/:provider` | `'rest'` | `'none'` | — | `false` | `false` | `corge.internals.payments.verifyAndProcessWebhook()` (`payments/routes.ts` → `payments/service.ts`) |
+| 51 | `'payments.webhook'` | `POST /api/payments/webhooks/:provider` | `'rest'` | `'public'` | — | `false` | `false` | `corge.internals.payments.verifyAndProcessWebhook()` (`payments/routes.ts` → `payments/service.ts`) |
 | *52* | *MCP Server* | `ALL /api/mcp` | `'rest'` | `'user'` | — | — | — | `mcpRoute()` (`chat/routes.ts`, mounted directly in `router/service.ts`) |
 
 ---
@@ -379,13 +378,13 @@ All built-in routes are defined in [`src/router/schema.ts`](file:///Users/nikdel
 | `workflowStorage` | `src/tasks/worker.ts` | `AsyncLocalStorage<ActiveWorkflowStore>` | Per workflow execution tree | Propagates `{ workflow, step, env }` to `useStep()` and `getWorkflowContext()`. |
 | `dbs` / `buckets` | `src/db/service.ts` | `[Firestore?, Firestore?]` / `[Bucket?, Bucket?]` | Process singleton (`[prod, dev]`) | Lazy-initialized Firestore & Storage Bucket instances for `isDev = false \| true`. |
 | `cachedToken` / `cachedTokenExp` | `src/db/service.ts` | `string` / `number` | Refreshed 60s before expiry | Cached GCP ADC OAuth2 access token used by Cloud Tasks & Firestore Admin export. |
-| `collectionRegistry` | `src/db/schema.ts` | `Map<string, CollectionDefinition<any>>` | Populated at `createCoreApp()` | Holds `chat`, `file`, `user_auth_meta`, `auth_tokens`, `email_log`, `email_suppression`, `payment_customer`, `payment_usage`, `payment_transaction` + user `collections`. |
-| `registeredAttachmentTypes` | `src/attachments/schema.ts` | `AttachmentTypesMap` | Populated at `createCoreApp()` | Holds document schemas from `init.attachmentTypes` and `agents[].attachmentTypes`. |
-| `emailTemplateRegistry` | `src/emails/schema.ts` | `Map<string, EmailTemplateDefinition<any>>` | Populated at `createCoreApp()` | Holds registered transactional email templates from `init.emailTemplates`. |
-| `registeredPlans` / `registeredProducts` | `src/payments/schema.ts` | `Record<string, PlanDefinition>` / `Record<string, ProductDefinition>` | Populated via `definePlans` / `defineProducts` / `createCoreApp()` | Holds registered subscription tiers and one-time purchasable products/token packs. |
-| `agentRegistry` | `src/chat/service.ts` | `Map<string, AgentConfig>` | Populated at `createCoreApp()` | Registered AI agents by agent ID. |
-| `toolRegistry` | `src/chat/service.ts` | `Map<string, WorkflowToolSpec>` | Populated at `createCoreApp()` | Sanitized route/workflow tools available to AI agents and `/api/mcp`. |
-| `contextCatalog` / `markdownCache` | `src/chat/context.ts` | `readonly ContextItemSpec[]` / `Map<string, string>` | Populated at `createCoreApp()` / lazy file cache | InfoBase `.md` catalog and in-memory file contents cache. |
+| `collectionRegistry` | `src/db/schema.ts` | `Map<string, CollectionDefinition<any>>` | Populated at `corge.createApp()` | Holds `chat`, `file`, `user_auth_meta`, `auth_tokens`, `email_log`, `email_suppression`, `payment_customer`, `payment_usage`, `payment_transaction` + user `collections`. |
+| `registeredAttachmentTypes` | `src/attachments/schema.ts` | `AttachmentTypesMap` | Populated at `corge.createApp()` | Holds document schemas from `init.attachmentTypes` and `agents[].attachmentTypes`. |
+| `emailTemplateRegistry` | `src/emails/schema.ts` | `Map<string, EmailTemplateDefinition<any>>` | Populated at `corge.createApp()` | Holds registered transactional email templates from `init.emailTemplates`. |
+| `registeredPlans` / `registeredProducts` | `src/payments/schema.ts` | `Record<string, PlanDefinition>` / `Record<string, ProductDefinition>` | Populated via `definePlans` / `defineProducts` / `corge.createApp()` | Holds registered subscription tiers and one-time purchasable products/token packs. |
+| `agentRegistry` | `src/chat/service.ts` | `Map<string, AgentConfig>` | Populated at `corge.createApp()` | Registered AI agents by agent ID. |
+| `toolRegistry` | `src/chat/service.ts` | `Map<string, WorkflowToolSpec>` | Populated at `corge.createApp()` | Sanitized route/workflow tools available to AI agents and `/api/mcp`. |
+| `contextCatalog` / `markdownCache` | `src/chat/context.ts` | `readonly ContextItemSpec[]` / `Map<string, string>` | Populated at `corge.createApp()` / lazy file cache | InfoBase `.md` catalog and in-memory file contents cache. |
 | `activeGenerations` | `src/chat/stream.ts` | `Map<string, ActiveGenerationEntry>` | Keyed by `${isDev}:${chatId}`; deleted in `finally` | Tracks in-flight SSE chat streams for instant cancellation & double-submit locking. |
 | `tokenCache` | `src/auth/session.ts` | `Map<string, CachedTokenEntry>` | Max `2000` entries (FIFO eviction), `5m` TTL | Caches verified session cookies and Firebase Bearer ID tokens. |
 | `revocationWatermarks` | `src/auth/session.ts` | `[RevocationWatermarkState, RevocationWatermarkState]` | Synced every `2s`/`3s` with `_system/auth_revocations` | Tracks per-UID revocation timestamps for prod (`[0]`) and dev (`[1]`). |
@@ -520,9 +519,9 @@ flowchart TD
 
 ## 5. Entrypoint, Corge Class & Config Module (`index.ts`, `config.ts`) — Per-Function Spec
 
-### 5.1 [`src/index.ts`](file:///Users/nikdelvin/Work/bso-ai/src/index.ts)
+### 5.1 [`src/index.ts`](../src/index.ts)
 
-The sole public entrypoint for `@corge`, defining `Corge`, `corge`, `useCorge`, `runWithCorge`, `getActiveCorgeState`, and the `corge.types.*` namespace.
+The sole public entrypoint for `@corgelabs/corge`, defining `Corge`, `corge`, `useCorge`, `runWithCorge`, `getActiveCorgeState`, and the `corge.types.*` namespace.
 
 #### Module-Level State
 - **`corgeStorage`**: `new AsyncLocalStorage<CorgeRuntimeState>()` — Stores `{ env: AppBindings, userId: EntryId, role: DbRole, step?: StepRunner }` across async call trees.
@@ -575,7 +574,7 @@ The sole public entrypoint for `@corge`, defining `Corge`, `corge`, `useCorge`, 
 - **Contract**: Instantiates domain `*Service` classes passing `this` (`new ErrorsService(this)`, `new ResilienceService(this)`, `new DbService(this)`, `new FilesService(this)`, `new AiService(this)`, `new AttachmentsService(this)`, `new TasksService(this)`, `new AuthService(this)`, `new ChatService(this)`, `new RouterService(this)`). Exposes `corge.internals` via a non-enumerable prototype getter (`get internals()`).
 
 ##### 6. `useCorge`
-- **Tier**: `Tier 1: Public (@corge)`
+- **Tier**: `Tier 1: Public (@corgelabs/corge)`
 - **Signature**:
   ```ts
   export const useCorge = (): Corge
@@ -584,13 +583,13 @@ The sole public entrypoint for `@corge`, defining `Corge`, `corge`, `useCorge`, 
 
 ---
 
-### 5.2 [`src/config.ts`](file:///Users/nikdelvin/Work/bso-ai/src/config.ts)
+### 5.2 [`src/config.ts`](../src/config.ts)
 
 Centralized platform configuration, secret names, RBAC types, and deep-merge override helper.
 
 #### Constants & State
 - **`SECRET_NAMES`**: `['SDK_API_KEY', 'GEMINI_API_KEY', 'JINA_API_KEY', 'WEB_API_KEY'] as const`
-- **`CORGE_CONFIG`**: `CoreConfig` singleton initialized from `process.env.GCP_PROJECT!` and `region = 'me-central1'`.
+- **`CORGE_CONFIG`**: `CorgeConfig` singleton initialized from `process.env.GCP_PROJECT!` and `region = 'me-central1'`.
 
 #### Functions in `src/config.ts`
 
@@ -606,11 +605,11 @@ Centralized platform configuration, secret names, RBAC types, and deep-merge ove
 - **Tier**: `Tier 1: Public` (`corge.define.config`) & `Tier 3: Module Export`
 - **Signature**:
   ```ts
-  export const defineConfig = (overrides?: DeepPartial<CoreConfig>): CoreConfig
+  export const defineConfig = (overrides?: DeepPartial<CorgeConfig>): CorgeConfig
   ```
 - **Contract**: If `overrides?.gcpProject` differs from `CORGE_CONFIG.gcpProject`, automatically recomputes `appName`, `firestoreDbs`, `storageBuckets`, `serviceAccount`, `workerUris`, and `queueBaseNames` before calling `mergeDeep(CORGE_CONFIG, overrides)`. Mutates and returns `CORGE_CONFIG`.
 
-#### Full `CoreConfig` & `AppBindings` Type Definitions
+#### Full `CorgeConfig` & `AppBindings` Type Definitions
 
 ```ts
 export type DbRole = 'admin' | 'user' | 'anon'
@@ -627,16 +626,14 @@ export type AuthTokenPurpose =
 
 export interface TransactionalEmailPayload {
   to: string
-  purpose: AuthTokenPurpose
+  purpose: AuthEmailPurpose
   code: string
   token: string
   expiresInMinutes: number
   userId: string
 }
 
-export type EmailSenderFn = (payload: TransactionalEmailPayload, env: AppBindings) => Promise<void>
-
-export interface CoreConfig {
+export interface CorgeConfig {
   appName: string
   gcpProject: string
   region: string
@@ -712,12 +709,8 @@ export interface CoreConfig {
     allowedOrigins: (string | RegExp)[]
     oauth?: { googleClientIds?: string[]; appleClientIds?: string[] }
   }
-  email: {
-    sendEmail?: EmailSenderFn
-    otpTtlMinutes: number             // 15
-    recoveryOtpTtlMinutes: number     // 10
-    maxVerifyAttempts: number         // 5
-  }
+  emails: EmailsConfig                // provider: 'sendgrid' | 'resend'
+  payments: PaymentsConfig            // provider: 'stripe' | 'dodo'
 }
 ```
 
@@ -726,7 +719,7 @@ export interface CoreConfig {
 
 ## 6. Database & RBAC Module (`src/db/*`) — Per-Function Spec
 
-### 6.1 [`src/db/schema.ts`](file:///Users/nikdelvin/Work/bso-ai/src/db/schema.ts)
+### 6.1 [`src/db/schema.ts`](../src/db/schema.ts)
 
 #### Schemas, Constants & State
 - **`entryId`**: `z.string().regex(/^[A-Za-z0-9_-]{1,128}$/)` (`corge.schemas.entryId`)
@@ -735,13 +728,13 @@ export interface CoreConfig {
 - **`unparseableReason`**: `z.enum(['CORRUPTED_FILE', 'PASSWORD_PROTECTED', 'EMPTY_OR_UNREADABLE', 'UNSUPPORTED_FORMAT', 'CLASSIFICATION_REJECTED'])`
 - **`fileScanError`**: `z.object({ status: z.literal('unparseable'), reason: unparseableReason, agentHint: z.string(), diagnosticMessage: z.string().optional(), failedAt: z.string() })`
 - **`baseEntrySchemaShape`** *(Tier 4: File-Private)*: `{ id: entryId, deleted: z.boolean().default(false), createdAt: z.date(), updatedAt: z.date() }`
-- **`coreCollections`** *(Tier 3: Module Export)*: Built-in collections registered via `defineCollections`:
+- **`corgeCollections`** *(Tier 3: Module Export)*: Built-in collections registered via `defineCollections`:
   1. `chat`: `{ userId, agentId, title, model, messageCount, summary, activeGenerationId, attachmentRefs }`, `1:N` on `userId`, `sortByUpdated: true`
   2. `file`: `{ id: fileRef, shaSum, fileName, contentType, size, scan, scanError, userId }`, `1:N` on `userId`
   3. `user_auth_meta`: `{ email, emailVerified, name, avatarUrl, recoveryEmail, recoveryEmailVerified, linkedProviders, providerKeys }`, `1:1` on `id`
   4. `auth_tokens`: `{ userId, purpose, targetEmail, tokenHash, urlTokenHash, attempts, expiresAt, consumedAt }`, `1:N` on `userId`
-- **`CORE_COLLECTION_NAMES`** *(Tier 4: File-Private)*: `['chat', 'file', 'user_auth_meta', 'auth_tokens'] as const`
-- **`collectionRegistry`** *(Tier 3: Module Export)*: `Map<string, CollectionDefinition<any>>` initialized with `coreCollections`.
+- **`CORGE_COLLECTION_NAMES`** *(Tier 4: File-Private)*: `['chat', 'file', 'user_auth_meta', 'auth_tokens'] as const`
+- **`collectionRegistry`** *(Tier 3: Module Export)*: `Map<string, CollectionDefinition<any>>` initialized with `corgeCollections`.
 
 #### Functions in `src/db/schema.ts` & `src/db/utils.ts`
 
@@ -784,7 +777,7 @@ export interface CoreConfig {
     reset = false
   ): void
   ```
-- **Contract**: When `reset === true`, clears `collectionRegistry` and restores the 6 `coreCollections` (`chat`, `file`, `user_auth_meta`, `auth_tokens`, `email_log`, `email_suppression`), then normalizes and inserts all `defs` into `collectionRegistry`.
+- **Contract**: When `reset === true`, clears `collectionRegistry` and restores the 6 `corgeCollections` (`chat`, `file`, `user_auth_meta`, `auth_tokens`, `email_log`, `email_suppression`), then normalizes and inserts all `defs` into `collectionRegistry`.
 - **Callers**: `createCoreApp` (`router/app.ts`) and test suites.
 
 ##### 5. `unregisterCollections`
@@ -793,7 +786,7 @@ export interface CoreConfig {
   ```ts
   export const unregisterCollections = (names: string[]): void
   ```
-- **Contract**: Deletes each name in `names` from `collectionRegistry` except protected `CORE_COLLECTION_NAMES`.
+- **Contract**: Deletes each name in `names` from `collectionRegistry` except protected `CORGE_COLLECTION_NAMES`.
 
 ##### 6. `getRegisteredCollectionNames`
 - **Tier**: `Tier 3: Module Export`
@@ -822,7 +815,7 @@ export interface CoreConfig {
 
 ---
 
-### 6.2 [`src/db/service.ts`](file:///Users/nikdelvin/Work/bso-ai/src/db/service.ts) (`class DbService`)
+### 6.2 [`src/db/service.ts`](../src/db/service.ts) (`class DbService`)
 
 #### Module Initialization & State
 - Initializes `firebase-admin/app` at module load with `projectId: CORGE_CONFIG.gcpProject`, `storageBucket: CORGE_CONFIG.storageBuckets.prod`, `serviceAccountId: CORGE_CONFIG.serviceAccount`, and an HTTPS `Agent({ keepAlive: true })`.
@@ -899,7 +892,7 @@ export interface CoreConfig {
 
 ## 7. Files & Content-Addressed Storage Module (`src/files/*`) — Per-Function Spec
 
-### 7.1 [`src/files/schema.ts`](file:///Users/nikdelvin/Work/bso-ai/src/files/schema.ts)
+### 7.1 [`src/files/schema.ts`](../src/files/schema.ts)
 
 #### Schemas & Constants
 - **`fileType`**: `z.enum(['application/pdf', 'image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/bmp', 'image/tiff', 'image/avif'])` (`corge.schemas.fileType`)
@@ -919,7 +912,7 @@ export interface CoreConfig {
 
 ---
 
-### 7.2 [`src/files/service.ts`](file:///Users/nikdelvin/Work/bso-ai/src/files/service.ts) (`class FilesService`)
+### 7.2 [`src/files/service.ts`](../src/files/service.ts) (`class FilesService`)
 
 #### Methods in `src/files/service.ts` (`readonly #corge: Corge`)
 
@@ -987,9 +980,9 @@ export interface CoreConfig {
 
 ---
 
-### 7.3 [`src/files/routes.ts`](file:///Users/nikdelvin/Work/bso-ai/src/files/routes.ts)
+### 7.3 [`src/files/routes.ts`](../src/files/routes.ts)
 
-Exports `coreFilesRoutes` (`Tier 3: Module Export`) mounted into `RouterService.createApp`:
+Exports `corgeFilesRoutes` (`Tier 3: Module Export`) mounted into `RouterService.createApp`:
 - **`'files.list'`** (`GET /api/files`): Calls `corge.db.list('file', { userId })`.
 - **`'files.upload'`** (`POST /api/files`): Parses `multipart/form-data` field `'file'` and calls `corge.files.upload(...)`.
 - **`'files.get'`** (`GET /api/files/:ref`): Supports `?meta=true` (returns Firestore `file` doc), `?signed=true` (returns `corge.files.getSignedDownloadUrl`), or default binary `Response` (`cache-control: private, max-age=3600, immutable`).
@@ -999,13 +992,13 @@ Exports `coreFilesRoutes` (`Tier 3: Module Export`) mounted into `RouterService.
 
 ## 8. AI Primitives Module (`src/ai/*`) — Per-Function Spec
 
-### 8.1 [`src/ai/schema.ts`](file:///Users/nikdelvin/Work/bso-ai/src/ai/schema.ts)
+### 8.1 [`src/ai/schema.ts`](../src/ai/schema.ts)
 
 Defines `DecisionQuestion`, `DecisionAnswer`, `DecideResult`, `VisionOptions`, `VisionResult`, `AiGenerateOptions<O>`, `AiGenerateResult<O>`, `DocAiProcessResponse`, and `GeminiDecisionsWireResponse`.
 
 ---
 
-### 8.2 [`src/ai/service.ts`](file:///Users/nikdelvin/Work/bso-ai/src/ai/service.ts) (`class AiService`) & [`src/ai/utils.ts`](file:///Users/nikdelvin/Work/bso-ai/src/ai/utils.ts)
+### 8.2 [`src/ai/service.ts`](../src/ai/service.ts) (`class AiService`) & [`src/ai/utils.ts`](../src/ai/utils.ts)
 
 Structured probabilistic reasoning via Google Gemini Decisions API (`gemini-decision-1` + Vertex `gemini-3.5-flash-lite` fallback), Google Cloud Document AI (`OCR_PROCESSOR`) + single-pass Vertex `gemini-3.5-flash-lite` structured markdown extraction, Vertex Vision fallback, multi-provider Vertex LLM text/object generation (`gemini-*` & `claude-*`), and Vertex `text-embedding-005` embeddings.
 
@@ -1021,7 +1014,7 @@ Structured probabilistic reasoning via Google Gemini Decisions API (`gemini-deci
 
 ## 9. Attachments Scanning & Batch Fan-Out Module (`src/attachments/*`) — Per-Function Spec
 
-### 9.1 [`src/attachments/schema.ts`](file:///Users/nikdelvin/Work/bso-ai/src/attachments/schema.ts)
+### 9.1 [`src/attachments/schema.ts`](../src/attachments/schema.ts)
 
 #### Functions in `src/attachments/schema.ts` & `src/attachments/utils.ts`
 
@@ -1082,7 +1075,7 @@ Structured probabilistic reasoning via Google Gemini Decisions API (`gemini-deci
 
 ---
 
-### 9.2 [`src/attachments/service.ts`](file:///Users/nikdelvin/Work/bso-ai/src/attachments/service.ts) (`class AttachmentsService`)
+### 9.2 [`src/attachments/service.ts`](../src/attachments/service.ts) (`class AttachmentsService`)
 
 #### Methods in `src/attachments/service.ts` (`readonly #corge: Corge`)
 
@@ -1158,9 +1151,9 @@ Structured probabilistic reasoning via Google Gemini Decisions API (`gemini-deci
 
 ---
 
-### 9.3 [`src/attachments/routes.ts`](file:///Users/nikdelvin/Work/bso-ai/src/attachments/routes.ts)
+### 9.3 [`src/attachments/routes.ts`](../src/attachments/routes.ts)
 
-Exports `coreAttachmentsRoutes` (`Tier 3: Module Export`):
+Exports `corgeAttachmentsRoutes` (`Tier 3: Module Export`):
 - **`'attachments.scan'`** (`POST /api/scan-attachment`, `mode: 'workflow'`): Uses `corge.attachments.scanShortCircuit` and `corge.attachments.scan`.
 - **`'attachments.process'`** (`POST /api/process-attachments`, `mode: 'workflow'`): Calls `corge.attachments.process(input, { step })`.
 
@@ -1168,18 +1161,15 @@ Exports `coreAttachmentsRoutes` (`Tier 3: Module Export`):
 
 ## 10. Authentication, OIDC Social & Account Recovery Module (`src/auth/*`) — Per-Function Spec
 
-### 10.1 [`src/auth/schema.ts`](file:///Users/nikdelvin/Work/bso-ai/src/auth/schema.ts)
+### 10.1 [`src/auth/schema.ts`](../src/auth/schema.ts)
 
-#### Constants & Schemas
-- **`SESSION_COOKIE`**: `CORGE_CONFIG.auth.sessionCookie` (`'session'`)
-- **`SESSION_EXPIRES_IN`**: `CORGE_CONFIG.auth.sessionExpiresInMs` (`14 days`)
-- **`ADMIN_USER_ID`**: `CORGE_CONFIG.auth.adminUserId` (`'admin'`)
+#### Schemas
 - **Zod Schemas**: `eraseUserInput`, `eraseUserOutput`, `customTokenBody`, `sessionBody`, `emailSignUpBody`, `emailSignInBody`, `socialSignInInput`, `sendVerificationEmailBody`, `verifyEmailBody`, `forgotPasswordBody`, `resetPasswordBody`, `setRecoveryEmailBody`, `verifyRecoveryEmailBody`, `initiateAccountRecoveryBody`, `completeAccountRecoveryBody`, `blockUserBody`, `signOutBody`.
-- **`resolveUserRole`**: Returns `explicitRole` if it is `'admin' | 'user' | 'anon'`; otherwise returns `'admin'` when `userId === ADMIN_USER_ID`, `'user'` when `userId` is non-empty, and `'anon'` when `userId` is empty/undefined.
+- **`resolveUserRole`**: Returns `explicitRole` if it is `'admin' | 'user' | 'anon'`; otherwise returns `'admin'` when `userId === CORGE_CONFIG.auth.adminUserId`, `'user'` when `userId` is non-empty, and `'anon'` when `userId` is empty/undefined.
 
 ---
 
-### 10.2 [`src/auth/service.ts`](file:///Users/nikdelvin/Work/bso-ai/src/auth/service.ts) (`class AuthService`) & Sub-Engines (`session.ts`, `oidc.ts`, `recovery.ts`, `utils.ts`)
+### 10.2 [`src/auth/service.ts`](../src/auth/service.ts) (`class AuthService`) & Sub-Engines (`session.ts`, `oidc.ts`, `recovery.ts`, `utils.ts`)
 
 Session cookies, in-memory token caching (`auth/session.ts`), cross-instance Firestore revocation watermarks (`_system/auth_revocations` in `auth/session.ts`), OIDC JWK verification for Google & Apple Sign-In (`auth/oidc.ts`), IdentityToolkit email/password flows, OTP/magic-token lifecycle (`auth_tokens` in `auth/recovery.ts`), account recovery, and GDPR user erasure (`auth/service.ts`).
 
@@ -1205,9 +1195,8 @@ Session cookies, in-memory token caching (`auth/session.ts`), cross-instance Fir
    - `signUpEmail(email, password, name?)` & `signInEmail(email, password)` (`POST /api/auth/sign-up/email`, `POST /api/auth/sign-in/email`)
    - `registerTestOidcPublicKey(jwk)` (`Tier 2: corge.internals.auth.registerTestOidcPublicKey`)
    - `signInSocial(raw)` (`Tier 1: corge.auth.signInSocial`, `POST /api/auth/sign-in/social`)
-   - `revokeSession(sessionCookie, deleteUser?)` (`POST /api/auth/sign-out`)
+   - `revokeSession(sessionCookie)` (`POST /api/auth/sign-out`)
 3. **Transactional OTPs, Verification, Password Reset & Account Recovery**:
-   - `getLastDevEmail(to, purpose)` (`Tier 2: corge.internals.auth.getLastDevEmail`)
    - `hashToken(raw)` (`Tier 2: corge.internals.auth.hashToken`)
    - `sendVerificationEmail(userId?)` & `verifyEmail(raw)` (`Tier 1: corge.auth.*`)
    - `forgotPassword(raw)` & `resetPassword(raw)` (`Tier 1: corge.auth.*`)
@@ -1222,17 +1211,17 @@ Session cookies, in-memory token caching (`auth/session.ts`), cross-instance Fir
 
 ---
 
-### 10.3 [`src/auth/routes.ts`](file:///Users/nikdelvin/Work/bso-ai/src/auth/routes.ts)
+### 10.3 [`src/auth/routes.ts`](../src/auth/routes.ts)
 
 - **`respondWithSession`** *(Tier 4: File-Private)*: Awaits `{ user, sessionCookie }`, calls `corge.auth.setSessionCookie(c, sessionCookie)`, and returns `user`.
-- **`coreAuthRoutes`** *(Tier 3: Module Export)*: Defines the 18 authentication route handlers listed in [Section 3.3](#33-master-built-in-http-routes-core_route_defaults--38-endpoints).
+- **`corgeAuthRoutes`** *(Tier 3: Module Export)*: Defines the 18 authentication route handlers listed in [Section 3.3](#33-master-built-in-http-routes-core_route_defaults--51-endpoints).
 
 
 ---
 
 ## 11. Chat, Agents, InfoBase Context, MCP & OpenAI Module (`src/chat/*`) — Per-Function Spec
 
-### 11.1 [`src/chat/schema.ts`](file:///Users/nikdelvin/Work/bso-ai/src/chat/schema.ts)
+### 11.1 [`src/chat/schema.ts`](../src/chat/schema.ts)
 
 #### Schemas & Types
 - **Types**: `VectorValue`, `SystemPromptBuilder`, `AgentToolPresets`, `UserContext`, `UserContextResolver`, `AgentConfig`, `ChatMetadataDoc`, `ChatMessageRole`, `ChatMessageDoc`, `ChatMessagePublic`, `RecalledMemorySnippet`, `ContextItemSpec`, `ContextEntry`, `RawAttachmentPart`, `StreamChatMessageInput`.
@@ -1306,7 +1295,7 @@ Session cookies, in-memory token caching (`auth/session.ts`), cross-instance Fir
 
 ---
 
-### 11.2 [`src/chat/service.ts`](file:///Users/nikdelvin/Work/bso-ai/src/chat/service.ts) (`class ChatService`) & Sub-Engines (`context.ts`, `stream.ts`, `utils.ts`)
+### 11.2 [`src/chat/service.ts`](../src/chat/service.ts) (`class ChatService`) & Sub-Engines (`context.ts`, `stream.ts`, `utils.ts`)
 
 #### Module Constants & Registries
 - **`FORBIDDEN_TOOL_SCHEMA_KEYS`** *(Tier 4: File-Private)*: `new Set(['userId', 'chatId', 'role', 'userRole', 'token', 'idToken', 'apiKey', 'session'])` — Stripped from both LLM tool JSON Schemas and runtime LLM tool arguments to prevent prompt-injected privilege/tenant spoofing.
@@ -1379,21 +1368,21 @@ Session cookies, in-memory token caching (`auth/session.ts`), cross-instance Fir
 
 ---
 
-### 11.3 [`src/chat/routes.ts`](file:///Users/nikdelvin/Work/bso-ai/src/chat/routes.ts)
+### 11.3 [`src/chat/routes.ts`](../src/chat/routes.ts)
 
-Exports `coreChatRoutes` (`Tier 3: Module Export`) binding the 9 chat and OpenAI routes (`chat.list`, `chat.get`, `chat.messages`, `chat.save`, `chat.delete`, `chat.stream`, `chat.cancel`, `openai.models`, `openai.completions`) to `corge.db.*` and `corge.chat.*`.
+Exports `corgeChatRoutes` (`Tier 3: Module Export`) binding the 9 chat and OpenAI routes (`chat.list`, `chat.get`, `chat.messages`, `chat.save`, `chat.delete`, `chat.stream`, `chat.cancel`, `openai.models`, `openai.completions`) to `corge.db.*` and `corge.chat.*`.
 
 ---
 
 ## 12. Durable Workflows, StepRunner, Cloud Tasks & Watcher Module (`src/tasks/*`) — Per-Function Spec
 
-### 12.1 [`src/tasks/schema.ts`](file:///Users/nikdelvin/Work/bso-ai/src/tasks/schema.ts)
+### 12.1 [`src/tasks/schema.ts`](../src/tasks/schema.ts)
 
 Defines all workflow types and interfaces: `TaskStatus` (`'running' | 'sleeping' | 'waiting_signal' | 'compensating' | 'completed' | 'errored' | 'cancelled'`), `TaskExecutionFence` (`epoch`, `activeRunId`, `lastHeartbeatAt`), `TaskProgressUpdate`, `TaskStatusRecord<O>`, `WorkflowContext`, `StepRetryPolicy`, `StepContext`, `StepOptions<T>`, `StepMapOptions<T, R>`, `StepSpec<T>`, `StepFn`, `WorkflowTargetRef<I, O>`, `StepRunner`, `RollbackLeg<T>`, `WorkflowTaskPayload`, and `WorkflowRuntimeEntry`.
 
 ---
 
-### 12.2 [`src/tasks/service.ts`](file:///Users/nikdelvin/Work/bso-ai/src/tasks/service.ts) (`class TasksService`) & Sub-Engines (`steps.ts`, `watcher.ts`, `worker.ts`, `utils.ts`)
+### 12.2 [`src/tasks/service.ts`](../src/tasks/service.ts) (`class TasksService`) & Sub-Engines (`steps.ts`, `watcher.ts`, `worker.ts`, `utils.ts`)
 
 Consolidates step retry/Claim-Check (`tasks/steps.ts` & `tasks/utils.ts`), durable `StepRunner` (`tasks/steps.ts`), sharded Cloud Tasks micro-batch queue & Firestore watcher (`tasks/watcher.ts`), workflow dispatcher/worker executor (`tasks/worker.ts`), and task status/signal/cancel operations (`tasks/service.ts`).
 
@@ -1436,7 +1425,7 @@ Consolidates step retry/Claim-Check (`tasks/steps.ts` & `tasks/utils.ts`), durab
 
 ---
 
-### 12.3 [`src/tasks/routes.ts`](file:///Users/nikdelvin/Work/bso-ai/src/tasks/routes.ts)
+### 12.3 [`src/tasks/routes.ts`](../src/tasks/routes.ts)
 
 - **`zodToJsonSchemaSafe`**, **`buildRoutesIntrospection`**, **`renderApiContractMarkdown`** (`Tier 3: Module Export`): Generates the JSON and Markdown API Contract & Schema Reference served by `GET /api/routes` and `GET /api/routes?format=md`.
 - **`buildHealthRoute`, `buildRoutesListRoute`, `buildTaskStatusRoute`, `buildTaskSignalRoute`, `buildTaskCancelRoute`** (`Tier 3: Module Export`): Route builders mounted into `RouterService.createApp`.
@@ -1445,14 +1434,14 @@ Consolidates step retry/Claim-Check (`tasks/steps.ts` & `tasks/utils.ts`), durab
 
 ## 13. Router, Security Guards & Cloud Functions Module (`src/router/*`) — Per-Function Spec
 
-### 13.1 [`src/router/schema.ts`](file:///Users/nikdelvin/Work/bso-ai/src/router/schema.ts)
+### 13.1 [`src/router/schema.ts`](../src/router/schema.ts)
 
 - **`defineRoute`, `defineRoutes`, `defineRouteOverrides`** (`Tier 1: corge.define.*` & `Tier 3: Module Export`).
 - **`CORGE_ROUTE_DEFAULTS`** (`Tier 2: corge.internals.context.routeDefaults` & `Tier 3: Module Export`): Declarative table of all 51 built-in `CorgeRouteId` configurations ([Section 3.3](#33-master-built-in-http-routes-core_route_defaults--51-endpoints)).
 
 ---
 
-### 13.2 [`src/router/service.ts`](file:///Users/nikdelvin/Work/bso-ai/src/router/service.ts) (`class RouterService`) & [`src/router/guard.ts`](file:///Users/nikdelvin/Work/bso-ai/src/router/guard.ts) (`class RouterGuardEngine`)
+### 13.2 [`src/router/service.ts`](../src/router/service.ts) (`class RouterService`) & [`src/router/guard.ts`](../src/router/guard.ts) (`class RouterGuardEngine`)
 
 Consolidates IP extraction, HTTP rate limiting, request authentication, declarative resource guards, and HTTP idempotency (`router/guard.ts`) with Cloud Functions v2 handler creation and `createApp` Hono bootstrap (`router/service.ts`).
 
@@ -1467,13 +1456,13 @@ Consolidates IP extraction, HTTP rate limiting, request authentication, declarat
 
 ## 14. Resilience, Rate Limiting, Circuit Breaker & Error Utilities (`src/utils/*`) + End-to-End DX Examples
 
-### 14.1 [`src/utils/schema.ts`](file:///Users/nikdelvin/Work/bso-ai/src/utils/schema.ts)
+### 14.1 [`src/utils/schema.ts`](../src/utils/schema.ts)
 
 Defines `errorBodySchema` (`corge.schemas.errorBodySchema`), `ErrorBody`, `Duration`, `BreakerName`, `CircuitState`, `CircuitBreakerDoc`, `SingleflightScope`, and `SingleflightOptions`.
 
 ---
 
-### 14.2 [`src/utils/service.ts`](file:///Users/nikdelvin/Work/bso-ai/src/utils/service.ts) (`ErrorsService` & `ResilienceService`)
+### 14.2 [`src/utils/service.ts`](../src/utils/service.ts) (`ErrorsService` & `ResilienceService`)
 
 #### 1. `ErrorsService` (`corge.errors.*`)
 
@@ -1502,7 +1491,7 @@ Defines `errorBodySchema` (`corge.schemas.errorBodySchema`), `ErrorBody`, `Durat
 #### 1. Single-File Durable Workflow Route (`src/routes/portfolio.ts`)
 
 ```ts
-import { corge } from '@corge'
+import { corge } from '@corgelabs/corge'
 import { CASE_IDS, portfolioCaseSchema, portfolioService } from '@services/portfolio'
 import { z } from 'zod'
 
@@ -1512,8 +1501,7 @@ export const processPortfolioInput = z.object({
 
 export const processPortfolioOutput = z.object({
   attachments: z.array(corge.schemas.processedAttachment),
-  case: portfolioCaseSchema,
-  notes: z.array(z.string())
+  case: portfolioCaseSchema
 })
 
 export const processPortfolioRoute = corge.define.route({
@@ -1526,7 +1514,7 @@ export const processPortfolioRoute = corge.define.route({
   handler: async ({ input, corge, step }) => {
     const { attachments } = await corge.attachments.process(input)
     const decision = await step('portfolio', () => portfolioService({ attachments }))
-    return { attachments, case: decision, notes: decision.notes }
+    return { attachments, case: decision }
   }
 })
 ```
@@ -1535,7 +1523,7 @@ export const processPortfolioRoute = corge.define.route({
 
 ```ts
 import { z } from 'zod'
-import { corge, useCorge } from '@corge'
+import { corge, useCorge } from '@corgelabs/corge'
 
 export const CASE_IDS = ['A1', 'A2', 'B1', 'B2'] as const
 export const portfolioCaseSchema = z.object({
@@ -1570,7 +1558,7 @@ export const portfolioService = async ({
 
 ```ts
 import { z } from 'zod'
-import { corge } from '@corge'
+import { corge } from '@corgelabs/corge'
 
 export const collections = corge.define.collections({
   portfolios: {
@@ -1587,7 +1575,7 @@ export const collections = corge.define.collections({
   }
 })
 
-declare module '@corge' {
+declare module '@corgelabs/corge' {
   interface Register {
     collections: typeof collections
   }
@@ -1602,19 +1590,9 @@ import { collections } from '@config/collections'
 import { context } from '@config/context'
 import { corgeRouteOverrides } from '@config/corge-overrides'
 import { routes } from '@config/routes'
-import { corge } from '@corge'
+import { corge } from '@corgelabs/corge'
 
-export const {
-  app,
-  devApp,
-  createApp,
-  workflowRegistry,
-  httpHandler,
-  devHttpHandler,
-  tasksHandler,
-  devTasksHandler,
-  functions
-} = corge.createApp({
+export const { app, devApp, functions } = corge.createApp({
   collections,
   context,
   agents,
@@ -1629,19 +1607,19 @@ export const {
 
 ### 15.1 Transactional Emails Module (`src/emails/`)
 
-#### [`src/emails/schema.ts`](file:///Users/nikdelvin/Work/bso-ai/src/emails/schema.ts), [`src/emails/utils.ts`](file:///Users/nikdelvin/Work/bso-ai/src/emails/utils.ts), [`src/emails/service.ts`](file:///Users/nikdelvin/Work/bso-ai/src/emails/service.ts) & [`src/emails/routes.ts`](file:///Users/nikdelvin/Work/bso-ai/src/emails/routes.ts) (`class EmailsService`)
+#### [`src/emails/schema.ts`](../src/emails/schema.ts), [`src/emails/utils.ts`](../src/emails/utils.ts), [`src/emails/service.ts`](../src/emails/service.ts) & [`src/emails/routes.ts`](../src/emails/routes.ts) (`class EmailsService`)
 
 - **`corge.define.emailTemplates(templates)`**: Registers strongly-typed email templates with Zod `variables`, optional `onBeforeSend(vars, to)` interceptor (which can mutate variables or return `false` to suppress sending), and provider-specific overrides (`providers.sendgrid.templateId`, `providers.resend.{templateId, subject, html, text}`).
 - **`corge.emails.send(input, opts?)`**: Validates template variables, enforces deterministic idempotency via `idempotencyKey` (`em_<sha256_40>`), checks `email_suppression`, dispatches through SendGrid (`POST /v3/mail/send`) or Resend (`POST /emails`) inside the `'emails'` circuit breaker and rate limiter, and writes an audit record to `email_log`.
 - **`corge.emails.sendBatch(inputs, opts?)`**: Dispatches up to 100 emails in a single batch (using Resend's native `/emails/batch` endpoint or parallel `send` calls) and returns `{ total, sent, suppressed, failed, results }`.
-- **`corge.emails.sendAuthEmail(purpose, to, vars?, opts?)`**: Dispatches transactional authentication emails (`verify_email`, `reset_password`, `verify_recovery_email`, `account_recovery`, `welcome`, `security_alert`) with `onAuthEmail` / `authFlows[purpose].onSend` hooks, custom templates, or Firebase Identity Toolkit OOB fallback.
+- **`corge.emails.sendAuthEmail(purpose, to, vars?, opts?)`**: Dispatches transactional authentication emails (`verify_email`, `reset_password`, `verify_recovery_email`, `account_recovery`, `welcome`, `security_alert`) with `onAuthEmail` / `authFlows[purpose].onSend` hooks, custom templates, or default HTML/text auth templates via SendGrid / Resend (or in-memory `#devEmailOutbox` in dev/test).
 - **`corge.internals.emails.verifyAndProcessWebhook(provider, rawBody, headers)`**: Verifies Resend (`svix-id`, `svix-timestamp`, `svix-signature`) and SendGrid (`x-twilio-email-event-webhook-timestamp`, `x-twilio-email-event-webhook-signature`) HMAC-SHA256 webhooks in constant time with replay-window enforcement, updates `email_log` status (`delivered`, `opened`, `clicked`, `bounced`, `complained`), and automatically records hard bounces and spam complaints in `email_suppression`.
 
 ---
 
 ### 15.2 Payments, Subscriptions & AI Token Metering Module (`src/payments/`)
 
-#### [`src/payments/schema.ts`](file:///Users/nikdelvin/Work/bso-ai/src/payments/schema.ts), [`src/payments/utils.ts`](file:///Users/nikdelvin/Work/bso-ai/src/payments/utils.ts), [`src/payments/billing.ts`](file:///Users/nikdelvin/Work/bso-ai/src/payments/billing.ts), [`src/payments/service.ts`](file:///Users/nikdelvin/Work/bso-ai/src/payments/service.ts) & [`src/payments/routes.ts`](file:///Users/nikdelvin/Work/bso-ai/src/payments/routes.ts) (`class PaymentsService` & `class PaymentsBillingEngine`)
+#### [`src/payments/schema.ts`](../src/payments/schema.ts), [`src/payments/utils.ts`](../src/payments/utils.ts), [`src/payments/billing.ts`](../src/payments/billing.ts), [`src/payments/service.ts`](../src/payments/service.ts) & [`src/payments/routes.ts`](../src/payments/routes.ts) (`class PaymentsService` & `class PaymentsBillingEngine`)
 
 - **`corge.define.plans(plans)` & `corge.define.products(products)`**: Declaratively registers recurring/free subscription tiers (`month` / `year` / `free`, environment-scoped `providers.{stripe, dodo}`, `quota.aiTokens`, `quota.metrics`, `quota.overage`) and one-time purchasable products/add-ons (`grants.{aiTokens, credits, metrics}`). Automatically sets `CORGE_CONFIG.payments.enabled = true` when definitions are registered.
 - **`corge.payments.{createCheckout, createPaymentLink, createInvoice, charge}`**: Supports both predefined catalog aliases (`{ plan }` / `{ product }`) and dynamic ad-hoc line items (`{ custom: { name, amount, currency, quantity } }`) across **Stripe** (`/v1/*` form-urlencoded REST API) and **Dodo Payments** (`https://live.dodopayments.com` / `https://test.dodopayments.com` JSON REST API) inside the `'payments'` circuit breaker and rate limiter.

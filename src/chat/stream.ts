@@ -113,7 +113,7 @@ export class ChatStreamEngine {
     userId?: EntryId
     input: z.infer<typeof saveChatBody>
   }): Promise<SelectModel<'chat'>> => {
-    const targetId = input.id ?? input.chatId
+    const targetId = input.id
     const existing = targetId ? await this.#corge.db.read('chat', targetId, true, { bypassRbac: true }) : undefined
     if (existing && userId !== CORGE_CONFIG.auth.adminUserId && existing.userId !== userId) {
       return this.#corge.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
@@ -188,28 +188,22 @@ export class ChatStreamEngine {
   }
 
   #resolveStreamTurnTarget = async (c: Context<AppEnv>, userId: EntryId, body: z.infer<typeof streamChatBody>) => {
-    const paramValue = c.req.param('chatId')
-    const paramIsAgent = Boolean(
-      paramValue && this.#agentRegistry.has(paramValue) && !body.agentId && !body.chatId && !body.id
-    )
+    const parsedChatId = entryId.safeParse(c.req.param('chatId') ?? '')
+    if (!parsedChatId.success) {
+      return this.#corge.errors.httpError(400, 'Invalid chatId parameter', 'VALIDATION_ERROR')
+    }
+    const chatId = parsedChatId.data
     const defaultAgentId = this.#agentRegistry.keys().next().value ?? 'chat'
-    const db = this.#corge.db.firestore()
-    const candidateChatId = !paramIsAgent ? (paramValue ?? body.chatId ?? body.id) : (body.chatId ?? body.id)
-    const chatId =
-      candidateChatId && entryId.safeParse(candidateChatId).success
-        ? candidateChatId
-        : db.collection('chat').doc().id
 
     const existing = await this.#corge.db.read('chat', chatId, true, { bypassRbac: true })
     if (existing && userId !== CORGE_CONFIG.auth.adminUserId && existing.userId !== userId) {
       this.#corge.errors.httpError(403, 'Forbidden', 'FORBIDDEN')
     }
 
-    const requestedAgentId = body.agentId ?? (paramIsAgent ? paramValue : undefined)
-    if (existing && requestedAgentId && requestedAgentId !== existing.agentId) {
+    if (existing && body.agentId && body.agentId !== existing.agentId) {
       this.#corge.errors.httpError(400, 'Cannot switch agentId on an existing chat', 'AGENT_IMMUTABLE')
     }
-    const resolvedAgentId = existing ? existing.agentId : (requestedAgentId ?? defaultAgentId)
+    const resolvedAgentId = existing ? existing.agentId : (body.agentId ?? defaultAgentId)
     const agent = this.#agentRegistry.get(resolvedAgentId)
     if (!agent) return this.#corge.errors.httpError(404, `Unknown agent: ${resolvedAgentId}`, 'NOT_FOUND')
     await this.enforceAgentAccess(c, agent, 'chat.stream')
@@ -394,21 +388,12 @@ export class ChatStreamEngine {
   streamChatSse = async ({
     c,
     userId = this.#corge.userId,
-    input
+    input: body
   }: {
     c: Context<AppEnv>
     userId?: EntryId
-    input?: z.infer<typeof streamChatBody>
+    input: z.infer<typeof streamChatBody>
   }): Promise<Response> => {
-    const parsedBody = streamChatBody.safeParse(input ?? (await c.req.json().catch(() => ({}))))
-    if (!parsedBody.success) {
-      return this.#corge.errors.httpError(
-        400,
-        parsedBody.error.issues.map((i) => `${i.path.join('.') || 'input'}: ${i.message}`).join('; '),
-        'VALIDATION_ERROR'
-      )
-    }
-    const body = parsedBody.data
     const { chatId, existing, resolvedAgentId, agent, attachmentParts, rawUserText, key } =
       await this.#resolveStreamTurnTarget(c, userId, body)
 

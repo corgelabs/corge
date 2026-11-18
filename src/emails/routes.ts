@@ -14,7 +14,7 @@ import {
   type SendEmailInput
 } from './schema'
 
-export const coreEmailRoutes = {
+export const corgeEmailRoutes = {
   'emails.send': {
     input: sendEmailInputSchema,
     output: sendEmailResultSchema,
