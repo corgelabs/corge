@@ -90,12 +90,18 @@ const getActiveCorgeState = (): CorgeRuntimeState | undefined => corgeStorage.ge
 const buildDefaultEnvBindings = (isDev = false): AppBindings => ({
   SDK_API_KEY: process.env.SDK_API_KEY ?? '',
   GEMINI_API_KEY: process.env.GEMINI_API_KEY ?? '',
+  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? '',
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY ?? '',
   JINA_API_KEY: process.env.JINA_API_KEY ?? '',
   WEB_API_KEY: process.env.WEB_API_KEY ?? '',
   RESEND_API_KEY: process.env.RESEND_API_KEY ?? '',
-  SENDGRID_API_KEY: process.env.SENDGRID_API_KEY ?? '',
-  EMAIL_WEBHOOK_SECRET: process.env.EMAIL_WEBHOOK_SECRET ?? '',
-  EMAIL_SANDBOX_WEBHOOK_SECRET: process.env.EMAIL_SANDBOX_WEBHOOK_SECRET ?? '',
+  RESEND_WEBHOOK_SECRET: process.env.RESEND_WEBHOOK_SECRET ?? '',
+  POSTMARK_API_KEY: process.env.POSTMARK_API_KEY ?? '',
+  ...(process.env.POSTMARK_SANDBOX_API_KEY ? { POSTMARK_SANDBOX_API_KEY: process.env.POSTMARK_SANDBOX_API_KEY } : {}),
+  POSTMARK_WEBHOOK_SECRET: process.env.POSTMARK_WEBHOOK_SECRET ?? '',
+  MAILTRAP_API_KEY: process.env.MAILTRAP_API_KEY ?? '',
+  ...(process.env.MAILTRAP_SANDBOX_API_KEY ? { MAILTRAP_SANDBOX_API_KEY: process.env.MAILTRAP_SANDBOX_API_KEY } : {}),
+  MAILTRAP_WEBHOOK_SECRET: process.env.MAILTRAP_WEBHOOK_SECRET ?? '',
   STRIPE_API_KEY: process.env.STRIPE_API_KEY ?? '',
   STRIPE_SANDBOX_API_KEY: process.env.STRIPE_SANDBOX_API_KEY ?? '',
   STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET ?? '',
@@ -104,6 +110,10 @@ const buildDefaultEnvBindings = (isDev = false): AppBindings => ({
   DODO_SANDBOX_API_KEY: process.env.DODO_SANDBOX_API_KEY ?? '',
   DODO_WEBHOOK_SECRET: process.env.DODO_WEBHOOK_SECRET ?? '',
   DODO_SANDBOX_WEBHOOK_SECRET: process.env.DODO_SANDBOX_WEBHOOK_SECRET ?? '',
+  PADDLE_API_KEY: process.env.PADDLE_API_KEY ?? '',
+  PADDLE_SANDBOX_API_KEY: process.env.PADDLE_SANDBOX_API_KEY ?? '',
+  PADDLE_WEBHOOK_SECRET: process.env.PADDLE_WEBHOOK_SECRET ?? '',
+  PADDLE_SANDBOX_WEBHOOK_SECRET: process.env.PADDLE_SANDBOX_WEBHOOK_SECRET ?? '',
   isDev
 })
 
@@ -363,6 +373,9 @@ export namespace corge {
     export type TaskStatusRecord<O = unknown> = import('./tasks').TaskStatusRecord<O>
     export type WorkflowContext = import('./tasks').WorkflowContext
     export type WorkflowRuntimeEntry = import('./tasks').WorkflowRuntimeEntry
+    export type AiProvider = import('./config').AiProvider
+    export type AiModelTier = import('./config').AiModelTier
+    export type AiConfig = import('./config').AiConfig
     export type AiUsageSummary = import('./ai').AiUsageSummary
     export type DecideResult = import('./ai').DecideResult
     export type DecisionQuestion = import('./ai').DecisionQuestion

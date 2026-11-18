@@ -46,23 +46,43 @@ export class RouterService {
     devApp: Hono<AppEnv>,
     workflowRegistry: Record<string, WorkflowRuntimeEntry>
   ) => {
-    const emailProvider = CORGE_CONFIG.emails.provider
-    const paymentProvider = CORGE_CONFIG.payments.provider
+    const activeAiProviders = [
+      ...new Set([CORGE_CONFIG.ai.provider, ...(CORGE_CONFIG.ai.fallbackProviders ?? []).slice(0, 2)])
+    ]
+    const aiSecrets: string[] = [
+      ...(activeAiProviders.includes('vertex') ? ['GEMINI_API_KEY'] : []),
+      ...(activeAiProviders.includes('anthropic') ? ['ANTHROPIC_API_KEY'] : []),
+      ...(activeAiProviders.includes('openai') ? ['OPENAI_API_KEY'] : [])
+    ]
+
+    const activeEmailProviders = [
+      ...new Set([CORGE_CONFIG.emails.provider, ...(CORGE_CONFIG.emails.fallbackProviders ?? []).slice(0, 2)])
+    ]
     const emailSecrets: string[] = [
-      ...(emailProvider === 'resend' ? ['RESEND_API_KEY', 'EMAIL_WEBHOOK_SECRET'] : []),
-      ...(emailProvider === 'sendgrid' ? ['SENDGRID_API_KEY', 'EMAIL_WEBHOOK_SECRET'] : [])
+      ...(activeEmailProviders.includes('resend') ? ['RESEND_API_KEY', 'RESEND_WEBHOOK_SECRET'] : []),
+      ...(activeEmailProviders.includes('postmark') ? ['POSTMARK_API_KEY', 'POSTMARK_WEBHOOK_SECRET'] : []),
+      ...(activeEmailProviders.includes('mailtrap') ? ['MAILTRAP_API_KEY', 'MAILTRAP_WEBHOOK_SECRET'] : [])
+    ]
+
+    const activePaymentProviders = [
+      ...new Set([CORGE_CONFIG.payments.provider, ...(CORGE_CONFIG.payments.fallbackProviders ?? []).slice(0, 2)])
     ]
     const paymentSecrets: string[] = CORGE_CONFIG.payments.enabled
       ? [
-          ...(paymentProvider === 'stripe'
+          ...(activePaymentProviders.includes('stripe')
             ? ['STRIPE_API_KEY', 'STRIPE_WEBHOOK_SECRET', 'STRIPE_SANDBOX_API_KEY', 'STRIPE_SANDBOX_WEBHOOK_SECRET']
             : []),
-          ...(paymentProvider === 'dodo'
+          ...(activePaymentProviders.includes('dodo')
             ? ['DODO_API_KEY', 'DODO_WEBHOOK_SECRET', 'DODO_SANDBOX_API_KEY', 'DODO_SANDBOX_WEBHOOK_SECRET']
+            : []),
+          ...(activePaymentProviders.includes('paddle')
+            ? ['PADDLE_API_KEY', 'PADDLE_WEBHOOK_SECRET', 'PADDLE_SANDBOX_API_KEY', 'PADDLE_SANDBOX_WEBHOOK_SECRET']
             : [])
         ]
       : []
-    const secretNames = [...new Set<string>([...SECRET_NAMES, ...emailSecrets, ...paymentSecrets, ...CORGE_CONFIG.secrets])]
+    const secretNames = [
+      ...new Set<string>([...SECRET_NAMES, ...aiSecrets, ...emailSecrets, ...paymentSecrets, ...CORGE_CONFIG.secrets])
+    ]
     const sharedOpts = {
       region: CORGE_CONFIG.region,
       memory: CORGE_CONFIG.cloudRun.memory,

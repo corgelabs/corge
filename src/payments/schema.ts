@@ -4,6 +4,8 @@ import { entryId, type EntryId } from '../db'
 
 export type { EnvScopedString, PaymentProvider, PaymentsConfig }
 
+export const paymentProviderSchema = z.enum(['stripe', 'dodo', 'paddle'])
+
 export interface ProviderPlanMapping {
   stripe?: {
     priceId: EnvScopedString
@@ -12,6 +14,11 @@ export interface ProviderPlanMapping {
   dodo?: {
     productId: EnvScopedString
     meterEventName?: string
+  }
+  paddle?: {
+    priceId?: EnvScopedString
+    productId?: EnvScopedString
+    overagePriceId?: EnvScopedString
   }
 }
 
@@ -53,6 +60,10 @@ export interface ProductDefinition {
     }
     dodo?: {
       productId: EnvScopedString
+    }
+    paddle?: {
+      priceId?: EnvScopedString
+      productId?: EnvScopedString
     }
   }
   grants?: {
@@ -177,7 +188,7 @@ export type CreateCheckoutInput = z.input<typeof createCheckoutInput>
 export const checkoutSessionResultSchema = z.object({
   checkoutId: z.string(),
   url: z.string().url(),
-  provider: z.enum(['stripe', 'dodo']),
+  provider: paymentProviderSchema,
   expiresAt: z.string().datetime().optional()
 })
 export type CheckoutSessionResult = z.infer<typeof checkoutSessionResultSchema>
@@ -200,7 +211,7 @@ export type CreatePaymentLinkInput = z.input<typeof createPaymentLinkInput>
 export const paymentLinkResultSchema = z.object({
   paymentLinkId: z.string(),
   url: z.string().url(),
-  provider: z.enum(['stripe', 'dodo'])
+  provider: paymentProviderSchema
 })
 export type PaymentLinkResult = z.infer<typeof paymentLinkResultSchema>
 
@@ -225,7 +236,7 @@ export const invoiceResultSchema = z.object({
   currency: z.string(),
   hostedInvoiceUrl: z.string().url(),
   pdfUrl: z.string().url().optional(),
-  provider: z.enum(['stripe', 'dodo'])
+  provider: paymentProviderSchema
 })
 export type InvoiceResult = z.infer<typeof invoiceResultSchema>
 
@@ -247,7 +258,7 @@ export const chargeResultSchema = z.object({
   status: z.enum(['succeeded', 'requires_action', 'failed']),
   amount: z.number().int().nonnegative(),
   currency: z.string(),
-  provider: z.enum(['stripe', 'dodo']),
+  provider: paymentProviderSchema,
   checkoutUrl: z.string().url().optional(),
   clientSecret: z.string().optional()
 })
@@ -265,7 +276,7 @@ export const subscribeResultSchema = z.object({
   subscriptionId: z.string(),
   planId: z.string(),
   status: z.enum(['active', 'trialing', 'requires_action']),
-  provider: z.enum(['stripe', 'dodo']),
+  provider: paymentProviderSchema,
   checkoutUrl: z.string().url().optional()
 })
 export type SubscribeResult = z.infer<typeof subscribeResultSchema>
@@ -288,7 +299,7 @@ export const subscriptionRecordSchema = z.object({
   subscriptionId: z.string(),
   planId: z.string(),
   status: subscriptionStatusSchema,
-  provider: z.enum(['stripe', 'dodo']),
+  provider: paymentProviderSchema,
   cancelAtPeriodEnd: z.boolean(),
   currentPeriodStart: z.string().datetime().optional(),
   currentPeriodEnd: z.string().datetime().optional()
@@ -345,7 +356,7 @@ export const customerBillingSummarySchema = z.object({
   }),
   status: subscriptionStatusSchema,
   subscriptionId: z.string().optional(),
-  activeProvider: z.enum(['stripe', 'dodo']).optional(),
+  activeProvider: paymentProviderSchema.optional(),
   currentPeriodStart: z.string().datetime().optional(),
   currentPeriodEnd: z.string().datetime().optional(),
   cancelAtPeriodEnd: z.boolean(),
@@ -356,7 +367,7 @@ export const customerBillingSummarySchema = z.object({
 export type CustomerBillingSummary = z.infer<typeof customerBillingSummarySchema>
 
 export const paymentWebhookParamsSchema = z.object({
-  provider: z.enum(['stripe', 'dodo'])
+  provider: paymentProviderSchema
 })
 export type PaymentWebhookParams = z.infer<typeof paymentWebhookParamsSchema>
 

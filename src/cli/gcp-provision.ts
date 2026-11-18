@@ -59,9 +59,9 @@ const ensureGoogleApisEnabled = async (project: string, headers: GcpHeaders): Pr
 }
 
 const ensureDocAiProcessor = async (project: string, headers: GcpHeaders): Promise<void> => {
-  const loc = CORGE_CONFIG.models.docAiLocation || 'eu'
-  const displayName = CORGE_CONFIG.models.docAiProcessorDisplayName || 'corge-ocr'
-  if (CORGE_CONFIG.models.docAiProcessorId) return
+  const loc = CORGE_CONFIG.ai.vertex.docAiLocation || 'eu'
+  const displayName = CORGE_CONFIG.ai.vertex.docAiProcessorDisplayName || 'corge-ocr'
+  if (CORGE_CONFIG.ai.vertex.docAiProcessorId) return
   const parentUrl = `https://${loc}-documentai.googleapis.com/v1/projects/${project}/locations/${loc}/processors`
 
   let listData: { processors?: { name?: string; displayName?: string; type?: string; state?: string }[] } | undefined
@@ -295,10 +295,14 @@ export const provisionCorgeGcpInfra = async (project: string, target: 'prod' | '
     'x-goog-user-project': project
   }
 
+  const activeAiProviders = [
+    ...new Set([CORGE_CONFIG.ai.provider, ...(CORGE_CONFIG.ai.fallbackProviders ?? []).slice(0, 2)])
+  ]
+  const usesVertex = activeAiProviders.includes('vertex')
+
   await ensureGoogleApisEnabled(project, headers)
   await Promise.all([
-    ensureDocAiProcessor(project, headers),
-    ensureGeminiApiKeySecret(project, headers),
+    ...(usesVertex ? [ensureDocAiProcessor(project, headers), ensureGeminiApiKeySecret(project, headers)] : []),
     ensureCloudTasksShardQueues(project, target, headers)
   ])
 }

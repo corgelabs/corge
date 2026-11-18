@@ -229,7 +229,7 @@ export class AuthOidcEngine {
     if (!normalized) return
     const flowCfg = this.#corge.config.emails.authFlows.welcome
     const hasWelcome =
-      Boolean(this.#corge.internals.registry.getEmailTemplate(flowCfg?.templateId ?? 'welcome')) ||
+      Boolean(this.#corge.internals.registry.getEmailTemplate('welcome')) ||
       Boolean(flowCfg?.onSend) ||
       Boolean(this.#corge.config.emails.onAuthEmail)
     if (!hasWelcome) return

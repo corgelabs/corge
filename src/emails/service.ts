@@ -20,11 +20,15 @@ import {
   buildAuthActionUrl,
   buildNormalizedEmailRequest,
   idempotencyEmailDocId,
+  isEmailFailoverEligible,
   normalizeEmail,
   parseAndVerifyEmailWebhook,
+  postMailtrapBatch,
+  postMailtrapEmail,
+  postPostmarkBatch,
+  postPostmarkEmail,
   postResendBatch,
   postResendEmail,
-  postSendGridMail,
   renderDefaultAuthEmail,
   summarizeBatchEmailResults,
   suppressionDocId
@@ -38,17 +42,50 @@ export class EmailsService {
     this.#corge = corgeClient
   }
 
-  #resolveProvider = (override?: EmailProvider): EmailProvider | 'dev' => {
-    const provider = override ?? this.#corge.config.emails.provider
-    const hasKey =
-      provider === 'sendgrid'
-        ? Boolean(this.#corge.env.SENDGRID_API_KEY?.trim())
-        : Boolean(this.#corge.env.RESEND_API_KEY?.trim())
-    if (hasKey) return provider
-    if (this.#corge.env.isDev) return 'dev'
+  #getProviderApiKey = (provider: EmailProvider): string => {
+    const env = this.#corge.env
+    const isDev = Boolean(env.isDev)
+    if (provider === 'resend') return env.RESEND_API_KEY?.trim() ?? ''
+    if (provider === 'postmark') {
+      return (isDev && env.POSTMARK_SANDBOX_API_KEY?.trim() ? env.POSTMARK_SANDBOX_API_KEY : env.POSTMARK_API_KEY)?.trim() ?? ''
+    }
+    return (isDev && env.MAILTRAP_SANDBOX_API_KEY?.trim() ? env.MAILTRAP_SANDBOX_API_KEY : env.MAILTRAP_API_KEY)?.trim() ?? ''
+  }
+
+  #getMailtrapUrls = (): { sendUrl: string; batchUrl: string } => {
+    const env = this.#corge.env
+    const mtCfg = this.#corge.config.emails.mailtrap
+    const useSandbox = Boolean(env.isDev && env.MAILTRAP_SANDBOX_API_KEY?.trim() && mtCfg.sandboxInboxId)
+    if (useSandbox) {
+      const sbBase = mtCfg.sandboxBaseUrl.replace(/\/+$/, '')
+      return {
+        sendUrl: `${sbBase}/api/send/${mtCfg.sandboxInboxId}`,
+        batchUrl: `${sbBase}/api/batch/${mtCfg.sandboxInboxId}`
+      }
+    }
+    const base = mtCfg.baseUrl.replace(/\/+$/, '')
+    return { sendUrl: `${base}/api/send`, batchUrl: `${base}/api/batch` }
+  }
+
+  #resolveProviderChain = (override?: EmailProvider): (EmailProvider | 'dev')[] => {
+    if (override) {
+      if (this.#getProviderApiKey(override)) return [override]
+      if (this.#corge.env.isDev) return ['dev']
+      return this.#corge.errors.httpError(
+        500,
+        `Missing API key for configured email provider "${override}"`,
+        'CONFIG_ERROR'
+      )
+    }
+
+    const emailsCfg = this.#corge.config.emails
+    const ordered = [...new Set<EmailProvider>([emailsCfg.provider, ...(emailsCfg.fallbackProviders ?? []).slice(0, 2)])]
+    const ready = ordered.filter((p) => Boolean(this.#getProviderApiKey(p)))
+    if (ready.length > 0) return ready
+    if (this.#corge.env.isDev) return ['dev']
     return this.#corge.errors.httpError(
       500,
-      `Missing API key for configured email provider "${provider}"`,
+      `Missing API key for configured email provider "${emailsCfg.provider}"`,
       'CONFIG_ERROR'
     )
   }
@@ -74,35 +111,58 @@ export class EmailsService {
         )
       : []
 
-  #withEmailBreaker = async <T>(cost: number, fn: () => Promise<T>): Promise<T> => {
+  #withEmailBreaker = async <T>(provider: EmailProvider, cost: number, fn: () => Promise<T>): Promise<T> => {
     await this.#corge.internals.resilience.acquireLimit('emails', cost)
-    return this.#corge.internals.resilience.circuitBreaker('emails', fn)
+    return this.#corge.internals.resilience.circuitBreaker(`emails-${provider}`, fn, undefined, {
+      isDev: this.#corge.env.isDev
+    })
   }
 
-  #sendViaSendGrid = (req: NormalizedEmailRequest): Promise<{ externalId: string }> =>
-    this.#withEmailBreaker(1, () =>
-      postSendGridMail(this.#corge.config.emails.sendgrid.baseUrl, this.#corge.env.SENDGRID_API_KEY, req)
-    )
+  #dispatchSingleToProvider = (provider: EmailProvider | 'dev', req: NormalizedEmailRequest): Promise<{ externalId: string }> => {
+    if (provider === 'dev') return Promise.resolve({ externalId: `dev_${req.emailId}` })
+    const apiKey = this.#getProviderApiKey(provider)
+    const emailsCfg = this.#corge.config.emails
+    if (provider === 'resend') {
+      return this.#withEmailBreaker('resend', 1, () => postResendEmail(emailsCfg.resend.baseUrl, apiKey, req))
+    }
+    if (provider === 'postmark') {
+      return this.#withEmailBreaker('postmark', 1, () =>
+        postPostmarkEmail(emailsCfg.postmark.baseUrl, apiKey, emailsCfg.postmark.messageStream, req)
+      )
+    }
+    const { sendUrl } = this.#getMailtrapUrls()
+    return this.#withEmailBreaker('mailtrap', 1, () => postMailtrapEmail(sendUrl, apiKey, req))
+  }
 
-  #sendViaResend = (req: NormalizedEmailRequest): Promise<{ externalId: string }> =>
-    this.#withEmailBreaker(1, () =>
-      postResendEmail(this.#corge.config.emails.resend.baseUrl, this.#corge.env.RESEND_API_KEY, req)
-    )
-
-  #sendBatchViaResend = (reqs: NormalizedEmailRequest[]): Promise<{ externalIds: string[] }> =>
-    this.#withEmailBreaker(reqs.length, () =>
-      postResendBatch(this.#corge.config.emails.resend.baseUrl, this.#corge.env.RESEND_API_KEY, reqs)
-    )
+  #dispatchBatchToProvider = (
+    provider: EmailProvider | 'dev',
+    reqs: NormalizedEmailRequest[]
+  ): Promise<{ externalIds: string[] }> => {
+    if (provider === 'dev') {
+      return Promise.resolve({ externalIds: reqs.map((r) => `dev_${r.emailId}`) })
+    }
+    const apiKey = this.#getProviderApiKey(provider)
+    const emailsCfg = this.#corge.config.emails
+    if (provider === 'resend') {
+      return this.#withEmailBreaker('resend', reqs.length, () => postResendBatch(emailsCfg.resend.baseUrl, apiKey, reqs))
+    }
+    if (provider === 'postmark') {
+      return this.#withEmailBreaker('postmark', reqs.length, () =>
+        postPostmarkBatch(emailsCfg.postmark.baseUrl, apiKey, emailsCfg.postmark.messageStream, reqs)
+      )
+    }
+    const { batchUrl } = this.#getMailtrapUrls()
+    return this.#withEmailBreaker('mailtrap', reqs.length, () => postMailtrapBatch(batchUrl, apiKey, reqs))
+  }
 
   #prepareEmailRequest = async (
     rawInput: SendEmailInput<any>,
-    provider: EmailProvider | 'dev',
     opts?: EmailCallOptions
   ): Promise<{ req: NormalizedEmailRequest; cancelled: boolean }> => {
     const parsed = sendEmailInputSchema.parse(rawInput)
     const toList = (Array.isArray(parsed.to) ? parsed.to : [parsed.to]).map(normalizeEmail)
     const tmpl = parsed.template ? getEmailTemplate(parsed.template) : undefined
-    if (parsed.template && !tmpl && !parsed.providerTemplateId && !parsed.html && !parsed.text) {
+    if (parsed.template && !tmpl && !parsed.html && !parsed.text) {
       return this.#corge.errors.httpError(400, `Unregistered email template: ${parsed.template}`, 'INVALID_TEMPLATE')
     }
 
@@ -135,7 +195,7 @@ export class EmailsService {
     const userId = opts?.userId ?? (this.#corge.userId || undefined)
     return {
       cancelled: false,
-      req: buildNormalizedEmailRequest(emailId, toList, parsed, tmpl, provider, vars, emailsCfg, attachments, userId)
+      req: buildNormalizedEmailRequest(emailId, toList, parsed, tmpl, vars, emailsCfg, attachments, userId)
     }
   }
 
@@ -146,7 +206,6 @@ export class EmailsService {
     externalMessageId?: string,
     errorMessage?: string
   ): Promise<SendEmailResult> => {
-    const template = req.template ?? req.providerTemplateId
     await this.#corge.db.create(
       'email_log',
       {
@@ -157,7 +216,7 @@ export class EmailsService {
         to: req.to[0]!,
         from: req.fromName ? `${req.fromName} <${req.fromEmail}>` : req.fromEmail,
         ...(req.subject ? { subject: req.subject } : {}),
-        ...(template ? { template } : {}),
+        ...(req.template ? { template: req.template } : {}),
         ...(req.purpose ? { purpose: req.purpose } : {}),
         status,
         ...(errorMessage ? { errorMessage } : {}),
@@ -179,7 +238,9 @@ export class EmailsService {
   getLog = async (emailId: EntryId): Promise<SelectModel<'email_log'> | undefined> =>
     this.#corge.db.read('email_log', emailId, false, { bypassRbac: true })
 
-  listLogs = async (options?: DbListOptions<SelectModel<'email_log'>>): Promise<SelectModel<'email_log'>[]> =>
+  listLogs = async (
+    options?: DbListOptions<SelectModel<'email_log'>>
+  ): Promise<SelectModel<'email_log'>[]> =>
     this.#corge.db.list('email_log', options, { bypassRbac: true })
 
   #checkExistingIdempotentEmail = async (idempotencyKey?: string): Promise<SendEmailResult | undefined> => {
@@ -199,25 +260,29 @@ export class EmailsService {
     const existing = await this.#checkExistingIdempotentEmail(input.idempotencyKey)
     if (existing) return existing
 
-    const provider = this.#resolveProvider(opts?.provider)
-    const { req, cancelled } = await this.#prepareEmailRequest(input, provider, opts)
+    const chain = this.#resolveProviderChain(opts?.provider)
+    const { req, cancelled } = await this.#prepareEmailRequest(input, opts)
     if (cancelled || (await this.#isRecipientListSuppressed(req.to))) {
-      return this.#recordEmailLog(req, provider, 'suppressed')
+      return this.#recordEmailLog(req, chain[0]!, 'suppressed')
     }
 
-    try {
-      const externalId =
-        provider === 'sendgrid'
-          ? (await this.#sendViaSendGrid(req)).externalId
-          : provider === 'resend'
-            ? (await this.#sendViaResend(req)).externalId
-            : `${provider}_${req.emailId}`
-      return this.#recordEmailLog(req, provider, 'sent', externalId)
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      await this.#recordEmailLog(req, provider, 'failed', undefined, msg).catch(() => {})
-      throw err
+    let lastErr: unknown
+    let lastProvider: EmailProvider | 'dev' = chain[0]!
+    for (let i = 0; i < chain.length; i++) {
+      const provider = chain[i]!
+      lastProvider = provider
+      try {
+        const { externalId } = await this.#dispatchSingleToProvider(provider, req)
+        return await this.#recordEmailLog(req, provider, 'sent', externalId)
+      } catch (err) {
+        lastErr = err
+        if (i === chain.length - 1 || !isEmailFailoverEligible(err)) break
+      }
     }
+
+    const msg = lastErr instanceof Error ? lastErr.message : String(lastErr)
+    await this.#recordEmailLog(req, lastProvider, 'failed', undefined, msg).catch(() => {})
+    throw lastErr
   }
 
   send = async <T = Record<string, unknown>>(input: SendEmailInput<T>, opts?: EmailCallOptions): Promise<SendEmailResult> =>
@@ -230,12 +295,9 @@ export class EmailsService {
       : this.#sendOnce(input, opts)
 
   sendBatch = async (inputs: SendEmailInput[], opts?: EmailCallOptions): Promise<SendBatchEmailResult> => {
-    const provider = this.#resolveProvider(opts?.provider)
-    if (provider !== 'resend' || !inputs.length) {
-      return summarizeBatchEmailResults(await Promise.all(inputs.map((inp) => this.send(inp, opts))))
-    }
-
-    const prepared = await Promise.all(inputs.map((inp) => this.#prepareEmailRequest(inp, 'resend', opts)))
+    if (!inputs.length) return summarizeBatchEmailResults([])
+    const chain = this.#resolveProviderChain(opts?.provider)
+    const prepared = await Promise.all(inputs.map((inp) => this.#prepareEmailRequest(inp, opts)))
     const results: SendEmailResult[] = []
     const activeReqs: { idx: number; req: NormalizedEmailRequest }[] = []
 
@@ -247,20 +309,51 @@ export class EmailsService {
       }
       const { req, cancelled } = prepared[i]!
       if (cancelled || (await this.#isRecipientListSuppressed(req.to))) {
-        results[i] = await this.#recordEmailLog(req, 'resend', 'suppressed')
+        results[i] = await this.#recordEmailLog(req, chain[0]!, 'suppressed')
       } else {
         activeReqs.push({ idx: i, req })
       }
     }
 
     if (activeReqs.length > 0) {
-      const { externalIds } = await this.#sendBatchViaResend(activeReqs.map((a) => a.req))
-      await Promise.all(
-        activeReqs.map(async ({ idx, req }, k) => {
-          results[idx] = await this.#recordEmailLog(req, 'resend', 'sent', externalIds[k])
-        })
-      )
+      let sentProvider: EmailProvider | 'dev' = chain[0]!
+      let externalIds: string[] | undefined
+      let lastErr: unknown
+
+      for (let i = 0; i < chain.length; i++) {
+        const provider = chain[i]!
+        sentProvider = provider
+        try {
+          const out = await this.#dispatchBatchToProvider(
+            provider,
+            activeReqs.map((a) => a.req)
+          )
+          externalIds = out.externalIds
+          break
+        } catch (err) {
+          lastErr = err
+          if (i === chain.length - 1 || !isEmailFailoverEligible(err)) {
+            await Promise.all(
+              activeReqs.map(({ req }) =>
+                this.#recordEmailLog(req, provider, 'failed', undefined, err instanceof Error ? err.message : String(err)).catch(
+                  () => {}
+                )
+              )
+            )
+            throw lastErr
+          }
+        }
+      }
+
+      if (externalIds) {
+        await Promise.all(
+          activeReqs.map(async ({ idx, req }, k) => {
+            results[idx] = await this.#recordEmailLog(req, sentProvider, 'sent', externalIds[k])
+          })
+        )
+      }
     }
+
     return summarizeBatchEmailResults(results)
   }
 
@@ -338,14 +431,12 @@ export class EmailsService {
     const callOpts = { ...opts, userId: payload.userId || opts?.userId }
 
     const registeredTmpl = getEmailTemplate(payload.purpose)
-    if (registeredTmpl || flowCfg?.templateId) {
-      const hasTmplSubject = Boolean(registeredTmpl?.subject || registeredTmpl?.providers?.resend?.subject)
+    if (registeredTmpl) {
       return this.send(
         {
           to: normalizedTo,
-          ...(registeredTmpl ? { template: payload.purpose } : {}),
-          ...(flowCfg?.templateId ? { providerTemplateId: flowCfg.templateId } : {}),
-          ...(!hasTmplSubject && flowCfg?.subject ? { subject: flowCfg.subject } : {}),
+          template: payload.purpose,
+          ...(!registeredTmpl.subject && flowCfg?.subject ? { subject: flowCfg.subject } : {}),
           variables: authVars,
           purpose: payload.purpose
         },
@@ -365,7 +456,7 @@ export class EmailsService {
   }
 
   #applyWebhookStatus = async (
-    provider: 'sendgrid' | 'resend',
+    provider: EmailProvider,
     externalId: string | undefined,
     recipient: string | undefined,
     status: EmailLogStatus,
@@ -407,14 +498,19 @@ export class EmailsService {
     await Promise.all(logs.map((log) => this.#corge.db.update('email_log', log.id, patch, { bypassRbac: true })))
   }
 
+  #getWebhookSecret = (provider: EmailProvider): string => {
+    const env = this.#corge.env
+    if (provider === 'resend') return env.RESEND_WEBHOOK_SECRET?.trim() ?? ''
+    if (provider === 'postmark') return env.POSTMARK_WEBHOOK_SECRET?.trim() ?? ''
+    return env.MAILTRAP_WEBHOOK_SECRET?.trim() ?? ''
+  }
+
   #verifyAndProcessWebhook = async (
-    provider: 'sendgrid' | 'resend',
+    provider: EmailProvider,
     rawBody: string,
     headers: Record<string, string | undefined>
   ): Promise<{ received: true; processed: number }> => {
-    const secret = (
-      this.#corge.env.isDev ? this.#corge.env.EMAIL_SANDBOX_WEBHOOK_SECRET : this.#corge.env.EMAIL_WEBHOOK_SECRET
-    ).trim()
+    const secret = this.#getWebhookSecret(provider)
     try {
       const parsed = parseAndVerifyEmailWebhook(
         provider,

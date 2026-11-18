@@ -23,19 +23,19 @@ Stop stitching 10 SDKs together. **Auth, DB, Storage, Payments, Emails, Multimod
 AI coding agents hallucinate when juggling 10 different SDKs and 10,000 lines of glue code. **Corge collapses the entire SaaS & AI stack into one declarative API (`corge.define.*`)**:
 
 - **Zero Context-Window Bloat**: Only `1` runtime dependency in `package.json` and `1` self-contained spec (`node_modules/@corgelabs/corge/docs/SPEC.md`).
-- **Production-Hardened Out of the Box**: Multi-tenant RBAC, content-addressed storage, Stripe/Dodo webhooks, SendGrid/Resend bounce suppression, and adaptive `200`/`202` durable workflows with Saga rollback.
+- **Production-Hardened Out of the Box**: Multi-tenant RBAC, content-addressed storage, 3×3 multi-provider failover across **AI** (Vertex / Anthropic / OpenAI), **Payments** (Stripe / Dodo / Paddle), and **Emails** (Resend / Postmark / Mailtrap), and adaptive `200`/`202` durable workflows with Saga rollback.
 - **`<1s` Typecheck + `F12` Into Raw Source**: Ships pre-compiled `.d.ts` sourcemaps wired straight to `src/**/*.ts` plus a zero-config `corge deploy` CLI.
 
 | What You Need | The Old Way (10+ SDKs & Glue) | With `@corgelabs/corge` |
 | :--- | :--- | :--- |
 | **API & Guards** | Hono/Express + custom auth, CORS, rate limits | `corge.createApp()` + `corge.define.routes()` |
 | **Durable Workflows** | Temporal / Inngest / BullMQ + Redis workers | `mode: 'workflow'` + `step()` with Saga rollback |
-| **AI, RAG & MCP** | Vercel AI + OCR + vector DB + custom MCP | `corge.ai`, `corge.chat`, `corge.attachments` + `mcp: true` |
+| **AI, RAG & MCP** | Vercel AI + OCR + vector DB + custom MCP | `corge.ai`, `corge.chat`, `corge.attachments` + `mcp: true` (Vertex / Claude / OpenAI failover) |
 | **Database & RBAC** | Raw Firestore + manual converters & ACLs | `corge.db` + `corge.define.collections()` |
 | **File Storage** | Raw GCS + manual MIME & ownership checks | `corge.files` (`{userId}_{sha256}` $O(1)$ ACLs + magic bytes) |
 | **Auth & OIDC** | Custom JWTs, Google/Apple OAuth, revocation | `corge.auth` (Cookies, OIDC, 3s revocation watermark) |
-| **Payments & Quotas** | Stripe / Dodo SDKs + webhooks + token meters | `corge.payments` (Plans, Webhooks, AI Token Quotas) |
-| **Emails** | SendGrid / Resend + bounce suppression tables | `corge.emails` (Zod templates, attachments, auto-suppression) |
+| **Payments & Quotas** | Stripe / Dodo / Paddle SDKs + webhooks + token meters | `corge.payments` (Stripe / Dodo / Paddle failover, Plans, AI Token Quotas) |
+| **Emails** | Resend / Postmark / Mailtrap + bounce suppression | `corge.emails` (Code-first templates, Resend / Postmark / Mailtrap failover, auto-suppression) |
 | **Dev & Cloud Deploy** | Custom bundlers, Secret Manager & CI scripts | `npx corge dev` · `corge deploy` · `corge test` |
 
 ---

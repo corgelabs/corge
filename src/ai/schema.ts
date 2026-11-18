@@ -1,4 +1,7 @@
 import { z } from 'zod'
+import type { AiConfig, AiModelTier, AiProvider } from '../config'
+
+export type { AiConfig, AiModelTier, AiProvider }
 
 export type DecisionQuestion =
   | { type: 'noul'; instructions: string; criteria?: { true: string; false: string } }
@@ -86,7 +89,75 @@ export interface GeminiDecisionsWireResponse {
   }
 }
 
+export type OpenAiDecisionQuestionWire =
+  | {
+      type: 'predicate'
+      name: string
+      instructions: string
+    }
+  | {
+      type: 'choice'
+      name: string
+      instructions: string
+      choices: { value: string; description?: string }[]
+    }
+  | {
+      type: 'score'
+      name: string
+      instructions: string
+      levels: { label: string; description?: string }[]
+    }
+
+export type OpenAiDecisionProbabilityEntry = {
+  value?: string
+  level?: string
+  probability: number
+}
+
+export type OpenAiDecisionAnswerWire =
+  | {
+      name: string
+      type: 'predicate'
+      probability: number
+    }
+  | {
+      name: string
+      type: 'choice'
+      choice: string
+      probabilities?: OpenAiDecisionProbabilityEntry[] | Record<string, number>
+    }
+  | {
+      name: string
+      type: 'score'
+      score: number
+      probabilities?: OpenAiDecisionProbabilityEntry[] | Record<string, number>
+    }
+  | {
+      name: string | null
+      type: 'refusal'
+    }
+
+export interface OpenAiDecisionsWireResponse {
+  id?: string
+  model?: string
+  answers?: OpenAiDecisionAnswerWire[]
+  usage?: {
+    input_tokens?: number
+    output_tokens?: number
+    prompt_tokens?: number
+    completion_tokens?: number
+    total_tokens?: number
+  }
+}
+
+export interface JinaEmbeddingsWireResponse {
+  model?: string
+  data?: { index?: number; embedding?: number[] }[]
+  usage?: { total_tokens?: number; prompt_tokens?: number }
+}
+
 export interface VisionOptions {
+  provider?: AiProvider
   schema?: Record<string, unknown>
   prompt?: string
   fallbackVision?: boolean
@@ -100,6 +171,7 @@ export interface VisionResult {
 }
 
 export interface AiGenerateOptions<O = string> {
+  provider?: AiProvider
   model?: string
   system?: string
   schema?: z.ZodType<O>

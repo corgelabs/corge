@@ -1,7 +1,15 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
 import {
-  getPlanDefinition, getProductDefinition, type CustomLineItem, type EnvScopedString, type NormalizedPaymentWebhook,
-  type PaymentProvider, type PaymentTransactionType, type PlanDefinition, type PlanQuotaSpec, type SubscriptionStatus
+  getPlanDefinition,
+  getProductDefinition,
+  type CustomLineItem,
+  type EnvScopedString,
+  type NormalizedPaymentWebhook,
+  type PaymentProvider,
+  type PaymentTransactionType,
+  type PlanDefinition,
+  type PlanQuotaSpec,
+  type SubscriptionStatus
 } from './schema'
 
 export const resolveEnvScopedValue = (val: EnvScopedString | undefined, isDev: boolean): string | undefined =>
@@ -18,7 +26,10 @@ export const paymentTxDocId = (provider: PaymentProvider, externalId: string): s
 export const idempotencyPaymentKey = (prefix: string, rawKey?: string): string | undefined =>
   rawKey ? `${prefix}_${createHash('sha256').update(rawKey.trim()).digest('hex').slice(0, 32)}` : undefined
 
-export const defaultFallbackPlan = (defaultPlanId: string, defaultCurrency: string): PlanDefinition & { id: string; quota: PlanQuotaSpec } => ({
+export const defaultFallbackPlan = (
+  defaultPlanId: string,
+  defaultCurrency: string
+): PlanDefinition & { id: string; quota: PlanQuotaSpec } => ({
   id: defaultPlanId,
   name: defaultPlanId === 'free' ? 'Free Plan' : defaultPlanId,
   interval: 'free',
@@ -27,7 +38,45 @@ export const defaultFallbackPlan = (defaultPlanId: string, defaultCurrency: stri
   quota: { overage: { enabled: false } }
 })
 
-export const encodeStripeForm = (data: Record<string, unknown>, prefix = '', out = new URLSearchParams()): URLSearchParams => {
+export const isPaymentFailoverEligible = (err: unknown): boolean => {
+  if (!err) return false
+  if (typeof err === 'object' && (err as { isCircuitBreakerOpen?: unknown }).isCircuitBreakerOpen === true) {
+    return true
+  }
+  const rec = typeof err === 'object' ? (err as Record<string, unknown>) : {}
+  const rawStatus =
+    typeof rec.status === 'number'
+      ? rec.status
+      : typeof rec.statusCode === 'number'
+        ? rec.statusCode
+        : undefined
+  const msg = err instanceof Error ? err.message : String(err)
+  const lower = msg.toLowerCase()
+  const parsedMatch = /\bhttp\s+(\d{3})\b/i.exec(msg)
+  const status = rawStatus ?? (parsedMatch?.[1] ? Number(parsedMatch[1]) : undefined)
+
+  if (status !== undefined) {
+    return status === 408 || status === 429 || status >= 500
+  }
+
+  return (
+    rec.name === 'AbortError' ||
+    rec.name === 'TimeoutError' ||
+    lower.includes('timed out') ||
+    lower.includes('timeout') ||
+    lower.includes('econnreset') ||
+    lower.includes('econnrefused') ||
+    lower.includes('etimedout') ||
+    lower.includes('socket hang up') ||
+    lower.includes('fetch failed')
+  )
+}
+
+export const encodeStripeForm = (
+  data: Record<string, unknown>,
+  prefix = '',
+  out = new URLSearchParams()
+): URLSearchParams => {
   for (const [key, value] of Object.entries(data)) {
     if (value === undefined || value === null) continue
     const formKey = prefix ? `${prefix}[${key}]` : key
@@ -45,7 +94,13 @@ export const encodeStripeForm = (data: Record<string, unknown>, prefix = '', out
   return out
 }
 
-const executePaymentFetch = async <T>(label: string, url: string, method: string, headers: Record<string, string>, body?: string): Promise<T> => {
+const executePaymentFetch = async <T>(
+  label: string,
+  url: string,
+  method: string,
+  headers: Record<string, string>,
+  body?: string
+): Promise<T> => {
   const res = await fetch(url, { method, headers, ...(body ? { body } : {}), signal: AbortSignal.timeout(15_000) })
   if (!res.ok) {
     const err = new Error(`${label} HTTP ${res.status}: ${await res.text().catch(() => '')}`)
@@ -95,9 +150,39 @@ export const requestDodoApi = async <T = Record<string, any>>(
     'Dodo',
     url,
     method.toUpperCase(),
-    { Authorization: `Bearer ${apiKey}`, 'content-type': 'application/json', ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}) },
+    {
+      Authorization: `Bearer ${apiKey}`,
+      'content-type': 'application/json',
+      ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {})
+    },
     !isGet && body !== undefined ? JSON.stringify(body) : undefined
   )
+}
+
+export const requestPaddleApi = async <T = Record<string, any>>(
+  baseUrl: string,
+  apiKey: string,
+  method: string,
+  path: string,
+  body?: unknown,
+  idempotencyKey?: string
+): Promise<T> => {
+  const url = `${baseUrl.replace(/\/+$/, '')}${path.startsWith('/') ? path : `/${path}`}`
+  const isGet = method.toUpperCase() === 'GET'
+  const raw = await executePaymentFetch<{ data?: T } & Record<string, any>>(
+    'Paddle',
+    url,
+    method.toUpperCase(),
+    {
+      Authorization: `Bearer ${apiKey}`,
+      'Paddle-Version': '1',
+      Accept: 'application/json',
+      ...(!isGet ? { 'Content-Type': 'application/json' } : {}),
+      ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {})
+    },
+    !isGet && body !== undefined ? JSON.stringify(body) : undefined
+  )
+  return (raw && typeof raw === 'object' && 'data' in raw && raw.data !== undefined ? raw.data : raw) as T
 }
 
 const constantTimeEqual = (a: string, b: string): boolean => {
@@ -179,6 +264,34 @@ export const verifyDodoWebhookHmac = (
   return { ...parsed, _webhookId: msgId }
 }
 
+export const verifyPaddleWebhookHmac = (
+  rawBody: string,
+  headers: Record<string, string | undefined>,
+  secret: string,
+  toleranceSeconds: number
+): Record<string, any> => {
+  const sigHeader = getHeader(headers, 'paddle-signature')
+  if (!sigHeader || !secret) {
+    throw new Error('Missing Paddle-Signature header or webhook secret')
+  }
+  const parts = sigHeader.split(/[;,]/).map((p) => p.trim())
+  const tsPart = parts.find((p) => p.startsWith('ts='))?.slice(3)
+  const h1Sigs = parts.filter((p) => p.startsWith('h1=')).map((p) => p.slice(3))
+  if (!tsPart || h1Sigs.length === 0) {
+    throw new Error('Malformed Paddle-Signature header')
+  }
+  const tsSeconds = Number(tsPart)
+  const nowSeconds = Math.floor(Date.now() / 1000)
+  if (!Number.isFinite(tsSeconds) || Math.abs(nowSeconds - tsSeconds) > toleranceSeconds) {
+    throw new Error('Paddle webhook timestamp outside tolerance window')
+  }
+  const expectedHex = createHmac('sha256', secret).update(`${tsPart}:${rawBody}`, 'utf8').digest('hex')
+  if (!h1Sigs.some((sig) => constantTimeEqual(sig, expectedHex))) {
+    throw new Error('Invalid Paddle webhook HMAC signature')
+  }
+  return JSON.parse(rawBody) as Record<string, any>
+}
+
 const STRIPE_EVENT_TX_MAP: Record<string, PaymentTransactionType> = {
   'checkout.session.completed': 'checkout.completed',
   'payment_intent.succeeded': 'payment.succeeded',
@@ -200,6 +313,19 @@ const DODO_EVENT_TX_MAP: Record<string, PaymentTransactionType> = {
   'subscription.on_hold': 'subscription.past_due',
   'subscription.cancelled': 'subscription.cancelled',
   'subscription.expired': 'subscription.cancelled'
+}
+
+const PADDLE_EVENT_TX_MAP: Record<string, PaymentTransactionType> = {
+  'transaction.completed': 'payment.succeeded',
+  'transaction.paid': 'payment.succeeded',
+  'transaction.payment_failed': 'payment.failed',
+  'transaction.billed': 'invoice.created',
+  'subscription.created': 'subscription.active',
+  'subscription.activated': 'subscription.active',
+  'subscription.updated': 'subscription.tier_changed',
+  'subscription.past_due': 'subscription.past_due',
+  'subscription.paused': 'subscription.past_due',
+  'subscription.canceled': 'subscription.cancelled'
 }
 
 const mapSubStatus = (rawStatus?: string): SubscriptionStatus | undefined => {
@@ -225,6 +351,12 @@ const toIsoIfEpochOrString = (val: unknown): string | undefined => {
   return undefined
 }
 
+const parseNumericAmount = (val: unknown): number | undefined => {
+  if (typeof val === 'number' && Number.isFinite(val)) return Math.round(val)
+  if (typeof val === 'string' && /^-?\d+$/.test(val.trim())) return Number(val.trim())
+  return undefined
+}
+
 export const normalizePaymentWebhook = (
   provider: PaymentProvider,
   rawBody: string,
@@ -235,20 +367,40 @@ export const normalizePaymentWebhook = (
   const raw =
     provider === 'stripe'
       ? verifyStripeWebhookHmac(rawBody, headers, secret, toleranceSeconds)
-      : verifyDodoWebhookHmac(rawBody, headers, secret, toleranceSeconds)
+      : provider === 'dodo'
+        ? verifyDodoWebhookHmac(rawBody, headers, secret, toleranceSeconds)
+        : verifyPaddleWebhookHmac(rawBody, headers, secret, toleranceSeconds)
 
   const rawEventType = String(raw.type ?? raw.event_type ?? '')
   const obj = (raw.data?.object ?? raw.data ?? raw) as Record<string, any>
-  const meta = (obj.metadata ?? raw.metadata ?? {}) as Record<string, string | undefined>
+  const meta = (obj.custom_data ?? obj.metadata ?? raw.custom_data ?? raw.metadata ?? {}) as Record<
+    string,
+    string | undefined
+  >
   const eventId = String(raw.id ?? raw.event_id ?? raw._webhookId ?? obj.id ?? `evt_${Date.now()}`)
-  const txType =
-    (provider === 'stripe' ? STRIPE_EVENT_TX_MAP[rawEventType] : DODO_EVENT_TX_MAP[rawEventType]) ?? null
+
+  let txType: PaymentTransactionType | null =
+    (provider === 'stripe'
+      ? STRIPE_EVENT_TX_MAP[rawEventType]
+      : provider === 'dodo'
+        ? DODO_EVENT_TX_MAP[rawEventType]
+        : PADDLE_EVENT_TX_MAP[rawEventType]) ?? null
+
+  if (
+    provider === 'paddle' &&
+    (rawEventType === 'transaction.completed' || rawEventType === 'transaction.paid') &&
+    typeof obj.subscription_id === 'string' &&
+    obj.origin === 'subscription_recurring'
+  ) {
+    txType = 'subscription.renewed'
+  }
+
   const paymentId =
     typeof obj.payment_intent === 'string'
       ? obj.payment_intent
       : typeof obj.payment_id === 'string'
         ? obj.payment_id
-        : txType === 'payment.succeeded' && typeof obj.id === 'string'
+        : (txType === 'payment.succeeded' || txType === 'subscription.renewed') && typeof obj.id === 'string'
           ? obj.id
           : undefined
 
@@ -271,7 +423,7 @@ export const normalizePaymentWebhook = (
           : undefined
 
   const subStatus =
-    mapSubStatus(obj.status) ??
+    (rawEventType.includes('subscription') ? mapSubStatus(obj.status) : undefined) ??
     (txType === 'subscription.active' || txType === 'subscription.renewed'
       ? 'active'
       : txType === 'subscription.cancelled'
@@ -280,17 +432,33 @@ export const normalizePaymentWebhook = (
           ? 'past_due'
           : undefined)
 
-  const amountRaw = obj.amount_total ?? obj.amount_paid ?? obj.amount ?? obj.total_amount
-  const amount = typeof amountRaw === 'number' ? Math.round(amountRaw) : undefined
-  const currency = typeof obj.currency === 'string' ? obj.currency.toLowerCase() : undefined
-  const currentPeriodStart = toIsoIfEpochOrString(obj.current_period_start ?? obj.previous_billing_date)
-  const currentPeriodEnd = toIsoIfEpochOrString(obj.current_period_end ?? obj.next_billing_date)
+  const amount = parseNumericAmount(
+    obj.amount_total ?? obj.amount_paid ?? obj.amount ?? obj.total_amount ?? obj.details?.totals?.total
+  )
+  const rawCurrency = obj.currency ?? obj.currency_code
+  const currency = typeof rawCurrency === 'string' ? rawCurrency.toLowerCase() : undefined
+  const currentPeriodStart = toIsoIfEpochOrString(
+    obj.current_period_start ??
+      obj.previous_billing_date ??
+      obj.current_billing_period?.starts_at ??
+      obj.billing_period?.starts_at
+  )
+  const currentPeriodEnd = toIsoIfEpochOrString(
+    obj.current_period_end ??
+      obj.next_billing_date ??
+      obj.current_billing_period?.ends_at ??
+      obj.billing_period?.ends_at
+  )
   const cancelAtPeriodEnd =
     typeof obj.cancel_at_period_end === 'boolean'
       ? obj.cancel_at_period_end
       : typeof obj.cancel_at_next_billing_date === 'boolean'
         ? obj.cancel_at_next_billing_date
-        : undefined
+        : obj.scheduled_change?.action === 'cancel'
+          ? true
+          : provider === 'paddle' && rawEventType.startsWith('subscription.') && obj.scheduled_change === null
+            ? false
+            : undefined
 
   return {
     eventId,
@@ -323,6 +491,8 @@ export interface ResolvedPurchaseItem {
   interval?: 'month' | 'year' | 'free'
   stripePriceId?: string
   dodoProductId?: string
+  paddlePriceId?: string
+  paddleProductId?: string
   metadata: Record<string, string>
 }
 
@@ -344,6 +514,8 @@ export const resolvePurchaseItem = (
     if (!prod) return { error: `Unknown product alias: ${input.product}` }
     const stripePriceId = resolveEnvScopedValue(prod.providers?.stripe?.priceId, isDev)
     const dodoProductId = resolveEnvScopedValue(prod.providers?.dodo?.productId, isDev)
+    const paddlePriceId = resolveEnvScopedValue(prod.providers?.paddle?.priceId, isDev)
+    const paddleProductId = resolveEnvScopedValue(prod.providers?.paddle?.productId, isDev)
     return {
       kind: 'product',
       id: prod.id,
@@ -354,6 +526,8 @@ export const resolvePurchaseItem = (
       quantity,
       ...(stripePriceId ? { stripePriceId } : {}),
       ...(dodoProductId ? { dodoProductId } : {}),
+      ...(paddlePriceId ? { paddlePriceId } : {}),
+      ...(paddleProductId ? { paddleProductId } : {}),
       metadata: { ...prod.metadata, ...input.metadata, userId, productId: prod.id }
     }
   }
@@ -362,6 +536,8 @@ export const resolvePurchaseItem = (
     if (!plan) return { error: `Unknown plan alias: ${input.plan}` }
     const stripePriceId = resolveEnvScopedValue(plan.providers?.stripe?.priceId, isDev)
     const dodoProductId = resolveEnvScopedValue(plan.providers?.dodo?.productId, isDev)
+    const paddlePriceId = resolveEnvScopedValue(plan.providers?.paddle?.priceId, isDev)
+    const paddleProductId = resolveEnvScopedValue(plan.providers?.paddle?.productId, isDev)
     return {
       kind: 'plan',
       id: plan.id,
@@ -373,6 +549,8 @@ export const resolvePurchaseItem = (
       interval: plan.interval,
       ...(stripePriceId ? { stripePriceId } : {}),
       ...(dodoProductId ? { dodoProductId } : {}),
+      ...(paddlePriceId ? { paddlePriceId } : {}),
+      ...(paddleProductId ? { paddleProductId } : {}),
       metadata: { ...plan.metadata, ...input.metadata, userId, planId: plan.id }
     }
   }
@@ -420,22 +598,69 @@ export const buildDodoCartOrCustom = (item: ResolvedPurchaseItem): Record<string
         }
       }
 
+export const buildPaddleItem = (
+  item: ResolvedPurchaseItem,
+  taxCategory: 'saas' | 'digital-goods' | 'standard' = 'saas'
+): Record<string, unknown> =>
+  item.paddlePriceId
+    ? { price_id: item.paddlePriceId, quantity: item.quantity }
+    : {
+        quantity: item.quantity,
+        price: {
+          name: item.name,
+          description: item.description ?? item.name,
+          billing_cycle:
+            item.kind === 'plan' && item.interval && item.interval !== 'free'
+              ? { interval: item.interval, frequency: 1 }
+              : null,
+          unit_price: {
+            amount: String(item.amount),
+            currency_code: item.currency.toUpperCase()
+          },
+          ...(item.paddleProductId
+            ? { product_id: item.paddleProductId }
+            : {
+                product: {
+                  name: item.name,
+                  ...(item.description ? { description: item.description } : {}),
+                  tax_category: taxCategory
+                }
+              })
+        }
+      }
+
 export const computeUsageDelta = (
   usageData: Record<string, unknown>,
   custData: Record<string, unknown>,
   plan: PlanDefinition & { quota: PlanQuotaSpec },
   parsed: { metric: string; amount: number; inputTokens?: number; outputTokens?: number },
-  skipMutation = false
+  skipMutation = false,
+  unitStepTokens = 1
 ) => {
   let aiTokensUsed = Number(usageData.aiTokensUsed ?? 0)
   let aiInputTokens = Number(usageData.aiInputTokens ?? 0)
   let aiOutputTokens = Number(usageData.aiOutputTokens ?? 0)
   let overageTokensReported = Number(usageData.overageTokensReported ?? 0)
+  let overageCarryTokens = Number(usageData.overageCarryTokens ?? 0)
   let bonusAiTokens = Number(custData.bonusAiTokens ?? 0)
   const metricsUsed: Record<string, number> = { ...(usageData.metricsUsed as Record<string, number> | undefined) }
   const bonusMetrics: Record<string, number> = { ...(custData.bonusMetrics as Record<string, number> | undefined) }
   let overageDelta = 0
-  if (skipMutation) return { aiTokensUsed, aiInputTokens, aiOutputTokens, overageTokensReported, bonusAiTokens, metricsUsed, bonusMetrics, overageDelta }
+  let overageUnits = 0
+  if (skipMutation) {
+    return {
+      aiTokensUsed,
+      aiInputTokens,
+      aiOutputTokens,
+      overageTokensReported,
+      overageCarryTokens,
+      bonusAiTokens,
+      metricsUsed,
+      bonusMetrics,
+      overageDelta,
+      overageUnits
+    }
+  }
 
   if (parsed.metric === 'ai_tokens') {
     const limit = plan.quota.aiTokens
@@ -447,8 +672,21 @@ export const computeUsageDelta = (
     const uncoveredIncrease = Math.max(0, nextUncovered - prevUncovered)
     const bonusDeducted = Math.min(bonusAiTokens, uncoveredIncrease)
     bonusAiTokens -= bonusDeducted
-    overageDelta = uncoveredIncrease - bonusDeducted
-    if (overageDelta > 0 && plan.quota.overage?.enabled) overageTokensReported += overageDelta
+    const newlyBillable = uncoveredIncrease - bonusDeducted
+    if (newlyBillable > 0 && plan.quota.overage?.enabled) {
+      const stepSize = Math.max(1, Math.round(unitStepTokens))
+      const totalPending = overageCarryTokens + newlyBillable
+      if (stepSize <= 1) {
+        overageUnits = totalPending
+        overageDelta = totalPending
+        overageCarryTokens = 0
+      } else {
+        overageUnits = Math.floor(totalPending / stepSize)
+        overageDelta = overageUnits * stepSize
+        overageCarryTokens = totalPending - overageDelta
+      }
+      overageTokensReported += overageDelta
+    }
   } else {
     const limit = plan.quota.metrics?.[parsed.metric]
     const prev = metricsUsed[parsed.metric] ?? 0
@@ -461,6 +699,16 @@ export const computeUsageDelta = (
     const bonusDeducted = Math.min(availBonus, uncoveredIncrease)
     if (bonusDeducted > 0) bonusMetrics[parsed.metric] = availBonus - bonusDeducted
   }
-  return { aiTokensUsed, aiInputTokens, aiOutputTokens, overageTokensReported, bonusAiTokens, metricsUsed, bonusMetrics, overageDelta }
+  return {
+    aiTokensUsed,
+    aiInputTokens,
+    aiOutputTokens,
+    overageTokensReported,
+    overageCarryTokens,
+    bonusAiTokens,
+    metricsUsed,
+    bonusMetrics,
+    overageDelta,
+    overageUnits
+  }
 }
-

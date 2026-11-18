@@ -134,7 +134,7 @@ export const corgeCollections = defineCollections({
       userId: entryId,
       agentId: z.string().default('chat'),
       title: z.string().default('New Chat'),
-      model: z.string().default(CORGE_CONFIG.models.vertex),
+      model: z.string().default('default'),
       messageCount: z.number().int().nonnegative().default(0),
       attachmentRefs: z.array(fileRef).optional(),
       summary: z.string().nullable().optional(),
@@ -204,7 +204,7 @@ export const corgeCollections = defineCollections({
   email_log: {
     schema: z.object({
       userId: entryId.optional(),
-      provider: z.enum(['sendgrid', 'resend', 'dev']),
+      provider: z.enum(['resend', 'postmark', 'mailtrap', 'dev']),
       externalMessageId: z.string().optional(),
       to: z.string().email(),
       from: z.string(),
@@ -241,7 +241,7 @@ export const corgeCollections = defineCollections({
     schema: z.object({
       email: z.string().email(),
       reason: z.enum(['hard_bounce', 'spam_complaint', 'manual']),
-      provider: z.enum(['sendgrid', 'resend', 'manual']),
+      provider: z.enum(['resend', 'postmark', 'mailtrap', 'manual']),
       rawEvent: z.string().optional(),
       suppressedAt: z.string().datetime()
     }),
@@ -259,7 +259,8 @@ export const corgeCollections = defineCollections({
       name: z.string().optional(),
       stripeCustomerId: z.string().optional(),
       dodoCustomerId: z.string().optional(),
-      activeProvider: z.enum(['stripe', 'dodo']).optional(),
+      paddleCustomerId: z.string().optional(),
+      activeProvider: z.enum(['stripe', 'dodo', 'paddle']).optional(),
       planId: z.string().default('free'),
       subscriptionId: z.string().optional(),
       subscriptionStatus: z
@@ -288,6 +289,7 @@ export const corgeCollections = defineCollections({
       aiInputTokens: z.number().int().nonnegative().default(0),
       aiOutputTokens: z.number().int().nonnegative().default(0),
       overageTokensReported: z.number().int().nonnegative().default(0),
+      overageCarryTokens: z.number().int().nonnegative().default(0).optional(),
       metricsUsed: z.record(z.string(), z.number()).default({}),
       lastUpdatedAt: z.string().datetime()
     }),
@@ -301,7 +303,7 @@ export const corgeCollections = defineCollections({
   payment_transaction: {
     schema: z.object({
       userId: entryId,
-      provider: z.enum(['stripe', 'dodo']),
+      provider: z.enum(['stripe', 'dodo', 'paddle']),
       externalId: z.string(),
       type: z.enum([
         'checkout.completed',

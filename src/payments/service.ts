@@ -20,6 +20,8 @@ import {
   type PaymentLinkResult,
   type PaymentProvider,
   type PaymentWebhookResult,
+  type PlanDefinition,
+  type PlanQuotaSpec,
   type QuotaCheckResult,
   type RecordUsageInput,
   type SubscribeInput,
@@ -33,7 +35,8 @@ import {
   defaultFallbackPlan,
   normalizePaymentWebhook,
   paymentTxDocId,
-  paymentUsageDocId
+  paymentUsageDocId,
+  resolveEnvScopedValue
 } from './utils'
 
 export class PaymentsService {
@@ -154,15 +157,21 @@ export class PaymentsService {
     return { allowed, metric, used, limit, bonusRemaining, overageEnabled, remaining }
   }
 
-  #ingestMeterEvent = async (
-    provider: PaymentProvider,
-    providerCustomerId: string,
-    eventName: string,
-    value: number,
-    idempotencyKey: string,
+  #ingestMeterEvent = async (params: {
+    provider: PaymentProvider
+    providerCustomerId: string
+    subscriptionId?: string
+    plan: PlanDefinition & { id: string; quota: PlanQuotaSpec }
+    eventName: string
+    overageDelta: number
+    overageUnits: number
+    idempotencyKey: string
     metadata?: Record<string, string>
-  ): Promise<void> => {
-    if (this.#billing.getCreds(provider).isSyntheticDev || value <= 0) return
+  }): Promise<void> => {
+    const { provider, providerCustomerId, subscriptionId, plan, eventName, overageDelta, overageUnits, idempotencyKey, metadata } =
+      params
+    if (this.#billing.getCreds(provider).isSyntheticDev || overageDelta <= 0) return
+
     if (provider === 'stripe') {
       await this.#billing.stripeCall(
         'POST',
@@ -170,24 +179,70 @@ export class PaymentsService {
         {
           event_name: eventName,
           identifier: idempotencyKey,
-          payload: { stripe_customer_id: providerCustomerId, value: String(Math.round(value)) }
+          payload: { stripe_customer_id: providerCustomerId, value: String(Math.round(overageDelta)) }
         },
         idempotencyKey
       )
       return
     }
-    await this.#billing.dodoCall(
+
+    if (provider === 'dodo') {
+      await this.#billing.dodoCall(
+        'POST',
+        '/events/ingest',
+        {
+          events: [
+            {
+              event_id: idempotencyKey,
+              customer_id: providerCustomerId,
+              event_name: eventName,
+              timestamp: new Date().toISOString(),
+              metadata: { ...metadata, value: String(Math.round(overageDelta)) }
+            }
+          ]
+        },
+        idempotencyKey
+      )
+      return
+    }
+
+    if (!subscriptionId || subscriptionId.startsWith('sub_dev_') || overageUnits <= 0) return
+    const isDev = Boolean(this.#corge.env.isDev)
+    const cfg = this.#corge.config.payments
+    const overagePriceId = resolveEnvScopedValue(plan.providers?.paddle?.overagePriceId, isDev)
+    const paddleProductId = resolveEnvScopedValue(plan.providers?.paddle?.productId, isDev)
+    const unitTokens = plan.quota.overage?.unitTokens ?? 1_000_000
+    const rateCents = plan.quota.overage?.rateCents ?? 100
+    const currency = (plan.currency ?? cfg.defaultCurrency).toUpperCase()
+
+    await this.#billing.paddleCall(
       'POST',
-      '/events/ingest',
+      `/subscriptions/${subscriptionId}/charge`,
       {
-        events: [
-          {
-            event_id: idempotencyKey,
-            customer_id: providerCustomerId,
-            event_name: eventName,
-            timestamp: new Date().toISOString(),
-            metadata: { ...metadata, value: String(Math.round(value)) }
-          }
+        effective_from: 'next_billing_period',
+        items: [
+          overagePriceId
+            ? { price_id: overagePriceId, quantity: overageUnits }
+            : {
+                quantity: overageUnits,
+                price: {
+                  name: `AI Token Overage (${unitTokens.toLocaleString()} tokens/unit)`,
+                  description: `Metered AI token overage for plan ${plan.name}`,
+                  billing_cycle: null,
+                  unit_price: {
+                    amount: String(rateCents),
+                    currency_code: currency
+                  },
+                  ...(paddleProductId
+                    ? { product_id: paddleProductId }
+                    : {
+                        product: {
+                          name: `${plan.name} AI Token Overage`,
+                          tax_category: cfg.paddle.taxCategory
+                        }
+                      })
+                }
+              }
         ]
       },
       idempotencyKey
@@ -211,16 +266,25 @@ export class PaymentsService {
       const custData = custSnap.data() ?? {}
       const planId = String(custData.planId ?? cfg.defaultPlanId)
       const plan = getPlanDefinition(planId) ?? defaultFallbackPlan(planId, cfg.defaultCurrency)
+      const activeProv = this.#billing.resolveProvider(
+        opts?.provider ?? (custData.activeProvider as PaymentProvider | undefined)
+      )
+      const stepTokens = activeProv === 'paddle' ? (plan.quota.overage?.unitTokens ?? 1_000_000) : 1
       const periodKey = currentPeriodKey(custData.currentPeriodStart as string | undefined)
       const usageId = paymentUsageDocId(userId, periodKey)
       const usageRef = db.collection('payment_usage').doc(usageId)
-      const [usageSnap, idemSnap] = await Promise.all([tx.get(usageRef), idemRef ? tx.get(idemRef) : Promise.resolve(undefined)])
+      const [usageSnap, idemSnap] = await Promise.all([
+        tx.get(usageRef),
+        idemRef ? tx.get(idemRef) : Promise.resolve(undefined)
+      ])
       const usageData = usageSnap.data() ?? {}
-      const delta = computeUsageDelta(usageData, custData, plan, parsed, Boolean(idemSnap?.exists))
+      const delta = computeUsageDelta(usageData, custData, plan, parsed, Boolean(idemSnap?.exists), stepTokens)
 
       if (!idemSnap?.exists) {
         const now = new Date()
-        if (idemRef) tx.set(idemRef, { key: idemRef.id, userId, createdAt: now, expiresAt: new Date(now.getTime() + 86_400_000) })
+        if (idemRef) {
+          tx.set(idemRef, { key: idemRef.id, userId, createdAt: now, expiresAt: new Date(now.getTime() + 86_400_000) })
+        }
         tx.set(
           usageRef,
           {
@@ -232,6 +296,7 @@ export class PaymentsService {
             aiInputTokens: delta.aiInputTokens,
             aiOutputTokens: delta.aiOutputTokens,
             overageTokensReported: delta.overageTokensReported,
+            overageCarryTokens: delta.overageCarryTokens,
             metricsUsed: delta.metricsUsed,
             lastUpdatedAt: now.toISOString(),
             deleted: false,
@@ -250,7 +315,9 @@ export class PaymentsService {
               bonusAiTokens: delta.bonusAiTokens,
               bonusMetrics: delta.bonusMetrics,
               updatedAt: now,
-              ...(custSnap.exists ? {} : { createdAt: now, deleted: false, subscriptionStatus: 'none', cancelAtPeriodEnd: false, credits: 0 })
+              ...(custSnap.exists
+                ? {}
+                : { createdAt: now, deleted: false, subscriptionStatus: 'none', cancelAtPeriodEnd: false, credits: 0 })
             },
             { merge: true }
           )
@@ -259,7 +326,9 @@ export class PaymentsService {
       return {
         plan,
         custData,
+        activeProv,
         overageDelta: delta.overageDelta,
+        overageUnits: delta.overageUnits,
         result: {
           userId,
           periodKey,
@@ -278,15 +347,29 @@ export class PaymentsService {
     })
 
     if (txOut.overageDelta > 0 && txOut.plan.quota.overage?.enabled) {
-      const provider = this.#billing.resolveProvider(opts?.provider ?? (txOut.custData.activeProvider as PaymentProvider | undefined))
+      const provider = txOut.activeProv
       const { providerCustomerId } = await this.#billing.ensureCustomer(userId, provider)
       const meterName =
-        (provider === 'stripe' ? txOut.plan.providers?.stripe?.meterEventName : txOut.plan.providers?.dodo?.meterEventName) ??
-        cfg.aiTokenMeterName
+        (provider === 'stripe'
+          ? txOut.plan.providers?.stripe?.meterEventName
+          : provider === 'dodo'
+            ? txOut.plan.providers?.dodo?.meterEventName
+            : undefined) ?? cfg.aiTokenMeterName
       const idemKey = parsed.idempotencyKey ?? `mtr_${userId}_${Date.now()}_${crypto.randomUUID().replace(/-/g, '').slice(0, 8)}`
-      await this.#ingestMeterEvent(provider, providerCustomerId, meterName, txOut.overageDelta, idemKey, {
-        ...parsed.metadata,
-        ...(parsed.model ? { model: parsed.model } : {})
+      const subscriptionId = typeof txOut.custData.subscriptionId === 'string' ? txOut.custData.subscriptionId : undefined
+      await this.#ingestMeterEvent({
+        provider,
+        providerCustomerId,
+        ...(subscriptionId ? { subscriptionId } : {}),
+        plan: txOut.plan,
+        eventName: meterName,
+        overageDelta: txOut.overageDelta,
+        overageUnits: txOut.overageUnits,
+        idempotencyKey: idemKey,
+        metadata: {
+          ...parsed.metadata,
+          ...(parsed.model ? { model: parsed.model } : {})
+        }
       })
     }
     return txOut.result
@@ -299,8 +382,14 @@ export class PaymentsService {
     const db = this.#corge.db.firestore()
     let userId = ev.userId
     if (!userId && ev.customerId) {
-      const field = provider === 'stripe' ? 'stripeCustomerId' : 'dodoCustomerId'
-      const snap = await db.collection('payment_customer').where(field, '==', ev.customerId).where('deleted', '==', false).limit(1).get()
+      const field =
+        provider === 'stripe' ? 'stripeCustomerId' : provider === 'dodo' ? 'dodoCustomerId' : 'paddleCustomerId'
+      const snap = await db
+        .collection('payment_customer')
+        .where(field, '==', ev.customerId)
+        .where('deleted', '==', false)
+        .limit(1)
+        .get()
       userId = snap.docs[0]?.id
     }
     if (!userId || !ev.txType) return { handled: false }
@@ -314,13 +403,23 @@ export class PaymentsService {
     await this.#corge.internals.resilience.acquireLimit('firestore')
 
     const { deduplicated } = await db.runTransaction(async (tx) => {
-      const [txSnap, custSnap, grantSnap] = await Promise.all([tx.get(txRef), tx.get(custRef), grantRef ? tx.get(grantRef) : Promise.resolve(undefined)])
+      const [txSnap, custSnap, grantSnap] = await Promise.all([
+        tx.get(txRef),
+        tx.get(custRef),
+        grantRef ? tx.get(grantRef) : Promise.resolve(undefined)
+      ])
       if (txSnap.exists) return { deduplicated: true }
       const custData = custSnap.data() ?? {}
       const now = new Date()
       const applyGrants = Boolean(prod?.grants && !grantSnap?.exists)
       if (applyGrants && grantRef) {
-        tx.set(grantRef, { key: grantRef.id, userId, productId: ev.productId, createdAt: now, expiresAt: new Date(now.getTime() + 86_400_000) })
+        tx.set(grantRef, {
+          key: grantRef.id,
+          userId,
+          productId: ev.productId,
+          createdAt: now,
+          expiresAt: new Date(now.getTime() + 86_400_000)
+        })
       }
       const bonusMetrics: Record<string, number> = { ...(custData.bonusMetrics ?? {}) }
       if (applyGrants) {
@@ -345,13 +444,21 @@ export class PaymentsService {
         updatedAt: now
       })
 
+      const customerIdPatch = ev.customerId
+        ? provider === 'stripe'
+          ? { stripeCustomerId: ev.customerId }
+          : provider === 'dodo'
+            ? { dodoCustomerId: ev.customerId }
+            : { paddleCustomerId: ev.customerId }
+        : {}
+
       tx.set(
         custRef,
         {
           id: userId,
           userId,
           activeProvider: provider,
-          ...(ev.customerId ? (provider === 'stripe' ? { stripeCustomerId: ev.customerId } : { dodoCustomerId: ev.customerId }) : {}),
+          ...customerIdPatch,
           planId: nextPlanId,
           ...(ev.subscriptionId ? { subscriptionId: ev.subscriptionId } : {}),
           ...(ev.subscriptionStatus ? { subscriptionStatus: ev.subscriptionStatus } : {}),
@@ -376,7 +483,22 @@ export class PaymentsService {
       const now = new Date()
       const planId = ev.planId ?? this.#corge.config.payments.defaultPlanId
       await db.collection('payment_usage').doc(usageId).set(
-        { id: usageId, userId, periodKey, planId, aiTokensUsed: 0, aiInputTokens: 0, aiOutputTokens: 0, overageTokensReported: 0, metricsUsed: {}, lastUpdatedAt: now.toISOString(), deleted: false, createdAt: now, updatedAt: now },
+        {
+          id: usageId,
+          userId,
+          periodKey,
+          planId,
+          aiTokensUsed: 0,
+          aiInputTokens: 0,
+          aiOutputTokens: 0,
+          overageTokensReported: 0,
+          overageCarryTokens: 0,
+          metricsUsed: {},
+          lastUpdatedAt: now.toISOString(),
+          deleted: false,
+          createdAt: now,
+          updatedAt: now
+        },
         { merge: true }
       )
     }
@@ -391,7 +513,13 @@ export class PaymentsService {
     const { webhookSecret } = this.#billing.getCreds(provider)
     let normalized: NormalizedPaymentWebhook
     try {
-      normalized = normalizePaymentWebhook(provider, rawBody, headers, webhookSecret, this.#corge.config.payments.webhookToleranceSeconds)
+      normalized = normalizePaymentWebhook(
+        provider,
+        rawBody,
+        headers,
+        webhookSecret,
+        this.#corge.config.payments.webhookToleranceSeconds
+      )
     } catch (err) {
       return this.#corge.errors.httpError(
         401,

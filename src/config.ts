@@ -19,16 +19,23 @@ export type RbacConfig = {
 
 export const SECRET_NAMES = [
   'SDK_API_KEY',
-  'GEMINI_API_KEY',
   'JINA_API_KEY',
   'WEB_API_KEY'
 ] as const
 
+export const AI_SECRET_NAMES = [
+  'GEMINI_API_KEY',
+  'ANTHROPIC_API_KEY',
+  'OPENAI_API_KEY'
+] as const
+
 export const EMAIL_SECRET_NAMES = [
   'RESEND_API_KEY',
-  'SENDGRID_API_KEY',
-  'EMAIL_WEBHOOK_SECRET',
-  'EMAIL_SANDBOX_WEBHOOK_SECRET'
+  'RESEND_WEBHOOK_SECRET',
+  'POSTMARK_API_KEY',
+  'POSTMARK_WEBHOOK_SECRET',
+  'MAILTRAP_API_KEY',
+  'MAILTRAP_WEBHOOK_SECRET'
 ] as const
 
 export const PAYMENT_SECRET_NAMES = [
@@ -39,18 +46,28 @@ export const PAYMENT_SECRET_NAMES = [
   'DODO_API_KEY',
   'DODO_SANDBOX_API_KEY',
   'DODO_WEBHOOK_SECRET',
-  'DODO_SANDBOX_WEBHOOK_SECRET'
+  'DODO_SANDBOX_WEBHOOK_SECRET',
+  'PADDLE_API_KEY',
+  'PADDLE_SANDBOX_API_KEY',
+  'PADDLE_WEBHOOK_SECRET',
+  'PADDLE_SANDBOX_WEBHOOK_SECRET'
 ] as const
 
 export interface AppBindings {
   SDK_API_KEY: string
   GEMINI_API_KEY: string
+  ANTHROPIC_API_KEY: string
+  OPENAI_API_KEY: string
   JINA_API_KEY: string
   WEB_API_KEY: string
   RESEND_API_KEY: string
-  SENDGRID_API_KEY: string
-  EMAIL_WEBHOOK_SECRET: string
-  EMAIL_SANDBOX_WEBHOOK_SECRET: string
+  RESEND_WEBHOOK_SECRET: string
+  POSTMARK_API_KEY: string
+  POSTMARK_SANDBOX_API_KEY?: string
+  POSTMARK_WEBHOOK_SECRET: string
+  MAILTRAP_API_KEY: string
+  MAILTRAP_SANDBOX_API_KEY?: string
+  MAILTRAP_WEBHOOK_SECRET: string
   STRIPE_API_KEY: string
   STRIPE_SANDBOX_API_KEY: string
   STRIPE_WEBHOOK_SECRET: string
@@ -59,6 +76,10 @@ export interface AppBindings {
   DODO_SANDBOX_API_KEY: string
   DODO_WEBHOOK_SECRET: string
   DODO_SANDBOX_WEBHOOK_SECRET: string
+  PADDLE_API_KEY: string
+  PADDLE_SANDBOX_API_KEY: string
+  PADDLE_WEBHOOK_SECRET: string
+  PADDLE_SANDBOX_WEBHOOK_SECRET: string
   isDev: boolean
 }
 
@@ -75,7 +96,48 @@ export interface RateLimitSpec {
 
 export type RateLimitConfig = RateLimitSpec | false
 
-export type EmailProvider = 'sendgrid' | 'resend'
+export type AiProvider = 'vertex' | 'anthropic' | 'openai'
+export type AiModelTier = 'default' | 'expert' | 'fast'
+
+export interface AiConfig {
+  provider: AiProvider
+  fallbackProviders?: readonly AiProvider[]
+  defaultAgentMaxSteps: number
+  vertex: {
+    location: string
+    defaultModel: string
+    expertModel: string
+    fastModel: string
+    decisionsModel: string
+    embeddingModel: string
+    docAiLocation: string
+    docAiProcessorDisplayName: string
+    docAiProcessorId: string
+  }
+  anthropic: {
+    baseUrl: string
+    defaultModel: string
+    expertModel: string
+    fastModel: string
+    ocrModel: string
+    decisionsModel: string
+  }
+  openai: {
+    baseUrl: string
+    defaultModel: string
+    expertModel: string
+    fastModel: string
+    ocrModel: string
+    decisionsModel: string
+    embeddingModel: string
+  }
+  jina: {
+    baseUrl: string
+    embeddingModel: string
+  }
+}
+
+export type EmailProvider = 'resend' | 'postmark' | 'mailtrap'
 
 export type AuthTokenPurpose =
   | 'verify_email'
@@ -115,7 +177,6 @@ export type AuthFlowEmailHook = (
 ) => Promise<boolean | Partial<AuthEmailVariables> | void>
 
 export interface AuthFlowConfigSpec {
-  templateId?: string
   subject?: string
   actionPath?: string
   onSend?: AuthFlowEmailHook
@@ -123,6 +184,7 @@ export interface AuthFlowConfigSpec {
 
 export interface EmailsConfig {
   provider: EmailProvider
+  fallbackProviders?: readonly EmailProvider[]
   fromEmail: string
   fromName: string
   replyTo?: string
@@ -134,21 +196,28 @@ export interface EmailsConfig {
   webhookToleranceSeconds: number
   onAuthEmail?: AuthFlowEmailHook
   authFlows: Record<AuthEmailPurpose, AuthFlowConfigSpec>
-  sendgrid: {
-    baseUrl: string
-  }
   resend: {
     baseUrl: string
   }
+  postmark: {
+    baseUrl: string
+    messageStream: string
+  }
+  mailtrap: {
+    baseUrl: string
+    sandboxBaseUrl: string
+    sandboxInboxId?: string
+  }
 }
 
-export type PaymentProvider = 'stripe' | 'dodo'
+export type PaymentProvider = 'stripe' | 'dodo' | 'paddle'
 
 export type EnvScopedString = string | { prod: string; dev: string }
 
 export interface PaymentsConfig {
   enabled: boolean
   provider: PaymentProvider
+  fallbackProviders?: readonly PaymentProvider[]
   defaultCurrency: Lowercase<string>
   defaultPlanId: string
   autoTrackAiTokens: boolean
@@ -167,10 +236,22 @@ export interface PaymentsConfig {
     baseUrl: string
     apiVersion: string
   }
+  paddle: {
+    liveBaseUrl: string
+    testBaseUrl: string
+    taxCategory: 'saas' | 'digital-goods' | 'standard'
+    checkoutUrl?: EnvScopedString
+  }
 }
 
 export type DeepPartial<T> = {
-  [K in keyof T]?: T[K] extends object ? (T[K] extends (...args: any[]) => any ? T[K] : DeepPartial<T[K]>) : T[K]
+  [K in keyof T]?: T[K] extends readonly (infer U)[]
+    ? readonly U[]
+    : T[K] extends object
+      ? T[K] extends (...args: any[]) => any
+        ? T[K]
+        : DeepPartial<T[K]>
+      : T[K]
 }
 
 export interface CorgeConfig {
@@ -213,18 +294,7 @@ export interface CorgeConfig {
     claimCheckThresholdBytes: number
     yieldBudgetRatio: number
   }
-  models: {
-    vertex: string
-    vertexExpert: string
-    vertexFlash: string
-    vertexEmbedding: string
-    vertexLocation: string
-    decisions: string
-    docAiLocation: string
-    docAiProcessorDisplayName: string
-    docAiProcessorId: string
-    defaultAgentMaxSteps: number
-  }
+  ai: AiConfig
   limits: {
     maxAttachments: number
     maxChatAttachments: number
@@ -329,17 +399,42 @@ export const CORGE_CONFIG: CorgeConfig = {
     claimCheckThresholdBytes: 204_800,
     yieldBudgetRatio: 0.75
   },
-  models: {
-    vertex: 'claude-haiku-5-5',
-    vertexExpert: 'claude-sonnet-5-5',
-    vertexFlash: 'gemini-3.5-flash-lite',
-    vertexEmbedding: 'text-embedding-005',
-    vertexLocation: 'global',
-    decisions: 'gemini-decision-1',
-    docAiLocation: 'eu',
-    docAiProcessorDisplayName: 'corge-ocr',
-    docAiProcessorId: '',
-    defaultAgentMaxSteps: 8
+  ai: {
+    provider: 'vertex',
+    fallbackProviders: [],
+    defaultAgentMaxSteps: 8,
+    vertex: {
+      location: 'global',
+      defaultModel: 'claude-haiku-5-5',
+      expertModel: 'claude-sonnet-5-5',
+      fastModel: 'claude-haiku-5-5',
+      decisionsModel: 'gemini-decision-1',
+      embeddingModel: 'text-embedding-005',
+      docAiLocation: 'eu',
+      docAiProcessorDisplayName: 'corge-ocr',
+      docAiProcessorId: ''
+    },
+    anthropic: {
+      baseUrl: 'https://api.anthropic.com/v1',
+      defaultModel: 'claude-haiku-5-5',
+      expertModel: 'claude-sonnet-5-5',
+      fastModel: 'claude-haiku-5-5',
+      ocrModel: 'claude-haiku-5-5',
+      decisionsModel: 'claude-haiku-5-5'
+    },
+    openai: {
+      baseUrl: 'https://api.openai.com/v1',
+      defaultModel: 'gpt-6-luna',
+      expertModel: 'gpt-6.2-sol',
+      fastModel: 'gpt-6-luna',
+      ocrModel: 'gpt-6-luna',
+      decisionsModel: 'gpt-6-luna',
+      embeddingModel: 'text-embedding-3-small'
+    },
+    jina: {
+      baseUrl: 'https://api.jina.ai/v1',
+      embeddingModel: 'jina-embeddings-v3'
+    }
   },
   limits: {
     maxAttachments: 500,
@@ -376,6 +471,7 @@ export const CORGE_CONFIG: CorgeConfig = {
   },
   emails: {
     provider: 'resend',
+    fallbackProviders: [],
     fromEmail: `no-reply@${gcpProject || 'app'}.firebaseapp.com`,
     fromName: gcpProject || 'App',
     actionBaseUrl: `https://${gcpProject || 'app'}.web.app`,
@@ -392,16 +488,22 @@ export const CORGE_CONFIG: CorgeConfig = {
       welcome: { actionPath: '/dashboard', subject: 'Welcome!' },
       security_alert: { actionPath: '/settings/security', subject: 'Security alert on your account' }
     },
-    sendgrid: {
-      baseUrl: 'https://api.sendgrid.com/v3'
-    },
     resend: {
       baseUrl: 'https://api.resend.com'
+    },
+    postmark: {
+      baseUrl: 'https://api.postmarkapp.com',
+      messageStream: 'outbound'
+    },
+    mailtrap: {
+      baseUrl: 'https://send.api.mailtrap.io',
+      sandboxBaseUrl: 'https://sandbox.api.mailtrap.io'
     }
   },
   payments: {
     enabled: false,
     provider: 'dodo',
+    fallbackProviders: [],
     defaultCurrency: 'usd',
     defaultPlanId: 'free',
     autoTrackAiTokens: true,
@@ -419,6 +521,11 @@ export const CORGE_CONFIG: CorgeConfig = {
     stripe: {
       baseUrl: 'https://api.stripe.com/v1',
       apiVersion: '2025-02-24.acacia'
+    },
+    paddle: {
+      liveBaseUrl: 'https://api.paddle.com',
+      testBaseUrl: 'https://sandbox-api.paddle.com',
+      taxCategory: 'saas'
     }
   }
 }

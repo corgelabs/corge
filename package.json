@@ -20,8 +20,14 @@
     "google-cloud",
     "vertex-ai",
     "gemini",
+    "anthropic",
+    "openai",
     "stripe",
     "dodo-payments",
+    "paddle",
+    "resend",
+    "postmark",
+    "mailtrap",
     "serverless"
   ],
   "license": "MIT",
@@ -58,10 +64,13 @@
     "build": "tsc -p tsconfig.build.json && esbuild src/index.ts --bundle --platform=node --target=node24 --format=esm --packages=external --sourcemap --outfile=dist/index.js && esbuild bin/corge.ts --bundle --platform=node --target=node24 --format=esm --packages=external --banner:js=\"#!/usr/bin/env node\" --outfile=dist/bin/corge.js && chmod +x dist/bin/corge.js",
     "check": "tsc --noEmit",
     "test": "node dist/bin/corge.js test",
+    "test:providers": "esbuild tests/providers.test.ts --bundle --platform=node --target=node24 --format=esm --packages=external --outfile=.corge/providers.test.js && node --test .corge/providers.test.js && rm -rf .corge",
     "prepublishOnly": "npm run check && npm run build"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.106",
     "@ai-sdk/google-vertex": "^5.0.121",
+    "@ai-sdk/openai": "^4.0.121",
     "@hono/node-server": "^1.19.17",
     "@modelcontextprotocol/server": "^2.3.1",
     "ai": "^7.0.150",

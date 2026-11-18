@@ -33,18 +33,6 @@ export const emailLogStatusSchema = z.enum([
 ])
 export type EmailLogStatus = z.infer<typeof emailLogStatusSchema>
 
-export interface EmailTemplateProviderSpec<V = Record<string, unknown>> {
-  sendgrid?: {
-    templateId: string
-  }
-  resend?: {
-    templateId?: string
-    subject?: string | ((vars: V) => string)
-    html?: string | ((vars: V) => string)
-    text?: string | ((vars: V) => string)
-  }
-}
-
 export interface EmailTemplateDefinition<S extends z.ZodTypeAny = z.ZodType<Record<string, unknown>>> {
   id?: string
   description?: string
@@ -56,7 +44,6 @@ export interface EmailTemplateDefinition<S extends z.ZodTypeAny = z.ZodType<Reco
   replyTo?: string
   category?: string
   variables?: S
-  providers?: EmailTemplateProviderSpec<z.infer<S>>
   onBeforeSend?: (vars: z.infer<S>, recipient: string) => Promise<z.infer<S> | false>
 }
 
@@ -107,7 +94,6 @@ export const sendEmailInputSchema = z
   .object({
     to: z.union([z.string().email(), z.array(z.string().email()).min(1).max(50)]),
     template: z.string().optional(),
-    providerTemplateId: z.string().optional(),
     variables: z.record(z.string(), z.unknown()).default({}),
     subject: z.string().max(300).optional(),
     html: z.string().optional(),
@@ -122,8 +108,8 @@ export const sendEmailInputSchema = z
     idempotencyKey: z.string().max(200).optional(),
     purpose: z.string().optional()
   })
-  .refine((v) => Boolean(v.template || v.providerTemplateId || v.html || v.text), {
-    message: 'Provide a template alias, providerTemplateId, or html/text body'
+  .refine((v) => Boolean(v.template || v.html || v.text), {
+    message: 'Provide a registered template alias or html/text body'
   })
 
 export type SendEmailInput<T = Record<string, unknown>> = Omit<z.input<typeof sendEmailInputSchema>, 'variables'> & {
@@ -147,7 +133,7 @@ export const emailLogsQuerySchema = z.object({
 export type EmailLogsQuery = z.infer<typeof emailLogsQuerySchema>
 
 export const emailWebhookParamsSchema = z.object({
-  provider: z.enum(['sendgrid', 'resend'])
+  provider: z.enum(['resend', 'postmark', 'mailtrap'])
 })
 export type EmailWebhookParams = z.infer<typeof emailWebhookParamsSchema>
 
@@ -155,7 +141,7 @@ export const sendEmailResultSchema = z.object({
   emailId: entryId,
   externalMessageId: z.string().optional(),
   status: emailLogStatusSchema,
-  provider: z.enum(['sendgrid', 'resend', 'dev']),
+  provider: z.enum(['resend', 'postmark', 'mailtrap', 'dev']),
   deduplicated: z.boolean().optional()
 })
 export type SendEmailResult = z.infer<typeof sendEmailResultSchema>
@@ -170,7 +156,7 @@ export const sendBatchEmailResultSchema = z.object({
 export type SendBatchEmailResult = z.infer<typeof sendBatchEmailResultSchema>
 
 export interface EmailCallOptions {
-  provider?: 'sendgrid' | 'resend'
+  provider?: EmailProvider
   userId?: EntryId
 }
 
@@ -192,7 +178,7 @@ export interface NormalizedEmailRequest {
   html?: string
   text?: string
   template?: string
-  providerTemplateId?: string
+  category?: string
   variables: Record<string, unknown>
   attachments: ResolvedAttachment[]
   tags?: Record<string, string>
@@ -221,19 +207,19 @@ export interface ResendWebhookEvent {
   }
 }
 
-export interface SendGridWebhookEvent {
-  event:
-    | 'processed'
-    | 'delivered'
-    | 'open'
-    | 'click'
-    | 'bounce'
-    | 'dropped'
-    | 'spamreport'
-    | (string & {})
+export interface PostmarkWebhookEvent {
+  RecordType?: 'Delivery' | 'Bounce' | 'SpamComplaint' | 'Open' | 'Click' | 'SubscriptionChange' | (string & {})
+  MessageID?: string
+  Recipient?: string
+  Email?: string
+  Type?: string
+  SuppressSending?: boolean
+}
+
+export interface MailtrapWebhookEvent {
+  event?: 'delivery' | 'open' | 'click' | 'bounce' | 'spam complaint' | 'unsubscribe' | 'reject' | 'suspension' | (string & {})
+  message_id?: string
   email?: string
-  sg_message_id?: string
-  timestamp?: number
-  reason?: string
   type?: string
+  timestamp?: number
 }

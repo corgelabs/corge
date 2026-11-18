@@ -225,23 +225,23 @@ src/
 | **`corge.chat.cancel`** | `src/chat/service.ts` | `ChatService.cancel` | `(chatId: EntryId) => Promise<{ chatId: string; cancelled: true }>` | Clears `activeGenerationId` in Firestore (triggering remote `onSnapshot` abort) and aborts local controller. |
 | **`corge.chat.retrieveContext`** | `src/chat/service.ts` | `ChatService.retrieveContext` | `(opts: Omit<HybridRetrievalOptions, 'userId'> & { userId?: EntryId }) => Promise<HybridRetrievalResult>` | Runs sliding window, in-chat + cross-chat vector recall, `resolveUserContext`, and Gemini Decisions InfoBase selection in parallel. |
 | **`corge.chat.getContext`** | `src/chat/service.ts` | `ChatService.getContext` | `(prompt: string, catalog?: readonly ContextItemSpec[], options?: GetContextOptions) => Promise<ContextEntry[]>` | Filters InfoBase catalog by `audiences`, scores relevance via Gemini Decisions `noul`, and loads matched `.md` files. |
-| **`corge.emails.send`** | `src/emails/service.ts` | `EmailsService.send` | `<T>(input: SendEmailInput<T>, opts?: EmailCallOptions) => Promise<SendEmailResult>` | Sends a transactional email via SendGrid, Resend, or Firebase/dev with idempotency, suppression check, and `email_log` audit entry. |
-| **`corge.emails.sendBatch`** | `src/emails/service.ts` | `EmailsService.sendBatch` | `(inputs: SendEmailInput[], opts?: EmailCallOptions) => Promise<SendBatchEmailResult>` | Sends up to 100 transactional emails in a single batch (native Resend `/emails/batch` or parallel dispatch). |
+| **`corge.emails.send`** | `src/emails/service.ts` | `EmailsService.send` | `<T>(input: SendEmailInput<T>, opts?: EmailCallOptions) => Promise<SendEmailResult>` | Sends a transactional email across Resend, Postmark, or Mailtrap (or `'dev'`) with ordered runtime failover, idempotency, suppression check, and `email_log` audit entry. |
+| **`corge.emails.sendBatch`** | `src/emails/service.ts` | `EmailsService.sendBatch` | `(inputs: SendEmailInput[], opts?: EmailCallOptions) => Promise<SendBatchEmailResult>` | Sends up to 100 transactional emails in a single native batch (`/emails/batch`, `/email/batch`, `/api/batch`) with runtime failover. |
 | **`corge.emails.sendAuthEmail`** | `src/emails/service.ts` | `EmailsService.sendAuthEmail` | `(purpose: AuthEmailPurpose, to: string, vars?: Partial<AuthEmailVariables>, opts?: EmailCallOptions) => Promise<SendEmailResult>` | Dispatches a transactional auth email (`verify_email`, `reset_password`, `verify_recovery_email`, `account_recovery`, `welcome`, `security_alert`). |
 | **`corge.emails.getLog`** | `src/emails/service.ts` | `EmailsService.getLog` | `(emailId: EntryId) => Promise<SelectModel<'email_log'> \| undefined>` | Reads an `email_log` delivery audit document by ID. |
 | **`corge.emails.listLogs`** | `src/emails/service.ts` | `EmailsService.listLogs` | `(options?: DbListOptions<SelectModel<'email_log'>>) => Promise<SelectModel<'email_log'>[]>` | Lists `email_log` records with filtering and pagination. |
 | **`corge.emails.isSuppressed`** | `src/emails/service.ts` | `EmailsService.isSuppressed` | `(email: string) => Promise<boolean>` | Checks whether a recipient address is on the `email_suppression` bounce/complaint list. |
-| **`corge.payments.createCheckout`** | `src/payments/service.ts` | `PaymentsService.createCheckout` | `(input: CreateCheckoutInput, opts?: PaymentCallOptions) => Promise<CheckoutSessionResult>` | Creates a hosted Stripe/Dodo checkout session for a predefined plan, product, or custom ad-hoc amount. |
-| **`corge.payments.createPaymentLink`** | `src/payments/service.ts` | `PaymentsService.createPaymentLink` | `(input: CreatePaymentLinkInput, opts?: PaymentCallOptions) => Promise<PaymentLinkResult>` | Generates a shareable Stripe/Dodo payment link for a predefined plan, product, or custom ad-hoc amount. |
-| **`corge.payments.createInvoice`** | `src/payments/service.ts` | `PaymentsService.createInvoice` | `(input: CreateInvoiceInput, opts?: PaymentCallOptions) => Promise<InvoiceResult>` | Creates and finalizes a Stripe/Dodo invoice with hosted payment URL and PDF link. |
-| **`corge.payments.charge`** | `src/payments/service.ts` | `PaymentsService.charge` | `(input: DirectChargeInput, opts?: PaymentCallOptions) => Promise<ChargeResult>` | Executes a direct one-time charge and automatically applies product `grants` on `status === 'succeeded'`. |
+| **`corge.payments.createCheckout`** | `src/payments/service.ts` | `PaymentsService.createCheckout` | `(input: CreateCheckoutInput, opts?: PaymentCallOptions) => Promise<CheckoutSessionResult>` | Creates a hosted Stripe / Dodo / Paddle checkout session (with ordered runtime failover) for a predefined plan, product, or custom ad-hoc amount. |
+| **`corge.payments.createPaymentLink`** | `src/payments/service.ts` | `PaymentsService.createPaymentLink` | `(input: CreatePaymentLinkInput, opts?: PaymentCallOptions) => Promise<PaymentLinkResult>` | Generates a shareable Stripe / Dodo / Paddle payment link for a predefined plan, product, or custom ad-hoc amount. |
+| **`corge.payments.createInvoice`** | `src/payments/service.ts` | `PaymentsService.createInvoice` | `(input: CreateInvoiceInput, opts?: PaymentCallOptions) => Promise<InvoiceResult>` | Creates and finalizes a Stripe / Dodo / Paddle invoice with hosted payment URL and PDF link. |
+| **`corge.payments.charge`** | `src/payments/service.ts` | `PaymentsService.charge` | `(input: DirectChargeInput, opts?: PaymentCallOptions) => Promise<ChargeResult>` | Executes a direct one-time charge (or checkout fallback) and automatically applies product `grants` on `status === 'succeeded'`. |
 | **`corge.payments.subscribe`** | `src/payments/service.ts` | `PaymentsService.subscribe` | `(input: SubscribeInput, opts?: PaymentCallOptions) => Promise<SubscribeResult>` | Subscribes the caller to a defined free or recurring plan tier (`month` / `year` / `free`). |
 | **`corge.payments.changeSubscriptionTier`** | `src/payments/service.ts` | `PaymentsService.changeSubscriptionTier` | `(input: ChangeTierInput, opts?: PaymentCallOptions) => Promise<SubscriptionRecord>` | Upgrades or downgrades the caller's active subscription tier with proration (`prorated_immediately`, `next_cycle`, `none`). |
 | **`corge.payments.cancelSubscription`** | `src/payments/service.ts` | `PaymentsService.cancelSubscription` | `(input?: CancelSubscriptionInput, opts?: PaymentCallOptions) => Promise<SubscriptionRecord>` | Cancels the caller's active subscription immediately or at the end of the current billing period. |
 | **`corge.payments.getSubscription`** | `src/payments/service.ts` | `PaymentsService.getSubscription` | `(userId?: EntryId) => Promise<CustomerBillingSummary>` | Returns the caller's current plan tier, subscription status, and bonus token/credit balances. |
 | **`corge.payments.getUsage`** | `src/payments/service.ts` | `PaymentsService.getUsage` | `(userId?: EntryId) => Promise<UsageStatusResult>` | Returns the caller's current billing period AI token and custom metric usage vs plan limits. |
 | **`corge.payments.checkQuota`** | `src/payments/service.ts` | `PaymentsService.checkQuota` | `(metric?: string, requiredAmount?: number, userId?: EntryId, throwOnExceeded?: boolean) => Promise<QuotaCheckResult>` | Evaluates plan quota + bonus balance + overage allowance (throws `402 QUOTA_EXCEEDED` when `throwOnExceeded = true`). |
-| **`corge.payments.recordUsage`** | `src/payments/service.ts` | `PaymentsService.recordUsage` | `(input: RecordUsageInput, opts?: PaymentCallOptions) => Promise<UsageStatusResult>` | Atomically increments `payment_usage`, deducts bonus balances, and ingests overage meter events to Stripe/Dodo. |
+| **`corge.payments.recordUsage`** | `src/payments/service.ts` | `PaymentsService.recordUsage` | `(input: RecordUsageInput, opts?: PaymentCallOptions) => Promise<UsageStatusResult>` | Atomically increments `payment_usage`, deducts bonus balances, and ingests overage meter/charge events to Stripe, Dodo, or Paddle. |
 | **`corge.schemas.*`** | Multiple `schema.ts` | 41 Zod Schemas | `{ entryId, fileRef, fileScan, fileScanError, fileBody, fileType, signedUploadInput, processedAttachment, scanAttachmentInput, scanAttachmentOutput, processAttachmentsInput, processAttachmentsOutput, saveChatBody, streamChatBody, openaiCompletionsBody, errorBodySchema, emailLogStatusSchema, emailAttachmentInputSchema, sendEmailInputSchema, sendBatchEmailInputSchema, emailLogsQuerySchema, emailWebhookParamsSchema, sendEmailResultSchema, sendBatchEmailResultSchema, createCheckoutInput, createPaymentLinkInput, createInvoiceInput, directChargeInput, subscribeInput, changeTierInput, cancelSubscriptionInput, recordUsageInput, paymentWebhookParamsSchema, checkoutSessionResultSchema, paymentLinkResultSchema, invoiceResultSchema, chargeResultSchema, subscribeResultSchema, subscriptionRecordSchema, customerBillingSummarySchema, usageStatusResultSchema, quotaCheckResultSchema }` | Reusable Zod schemas for route/collection definitions. |
 | **`corge.errors.*`** | `src/utils/service.ts` | `ErrorsService` | `{ httpError, nonRetryableError, NonRetryableError, isNonRetryableError, CircuitBreakerOpenError, StaleWorkerEpochError, isStaleWorkerEpochError, parseDuration }` | Structured HTTP errors, non-retryable workflow signals, epoch fence errors, and duration parser. |
 
@@ -470,7 +470,7 @@ flowchart LR
   SF --> ShaDedup["#findCrossUserByShaSum(ref, shaSum, type) (cross-user Firestore dedupe)"]
   ShaDedup -- "Miss" --> OCR["step('ocr'): ai.vision(dataUrl) -> Google Document AI OCR (or Vertex Vision if breaker OPEN)"]
   OCR --> Classify["step('classify'): attachments.classify(markdown) -> ai.decide() (Gemini Decisions)"]
-  Classify --> Extract["step('extract'): ai.generate(markdown, { model: vertexFlash, schema }) -> parseFields() via Zod"]
+  Classify --> Extract["step('extract'): ai.generate(markdown, { model: 'fast', schema }) -> parseFields() via Zod"]
   Extract --> Persist["step('persist'): db.update('file', ref, { scan, scanError: null })"]
   Persist --> Defects{"Permanent Defect? (400/415/422/encrypted/blank)"}
   Defects -- "Yes" --> PersistErr["Persist FileScanError on 'file' doc & throw NonRetryableError"]
@@ -588,7 +588,10 @@ The sole public entrypoint for `@corgelabs/corge`, defining `Corge`, `corge`, `u
 Centralized platform configuration, secret names, RBAC types, and deep-merge override helper.
 
 #### Constants & State
-- **`SECRET_NAMES`**: `['SDK_API_KEY', 'GEMINI_API_KEY', 'JINA_API_KEY', 'WEB_API_KEY'] as const`
+- **`SECRET_NAMES`**: `['SDK_API_KEY', 'JINA_API_KEY', 'WEB_API_KEY'] as const`
+- **`AI_SECRET_NAMES`**: `['GEMINI_API_KEY', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY'] as const`
+- **`EMAIL_SECRET_NAMES`**: `['RESEND_API_KEY', 'RESEND_WEBHOOK_SECRET', 'POSTMARK_API_KEY', 'POSTMARK_WEBHOOK_SECRET', 'MAILTRAP_API_KEY', 'MAILTRAP_WEBHOOK_SECRET'] as const`
+- **`PAYMENT_SECRET_NAMES`**: `['STRIPE_*', 'DODO_*', 'PADDLE_*']` (live & sandbox API keys + webhook secrets; Cloud Functions bind only active + fallback providers)
 - **`CORGE_CONFIG`**: `CorgeConfig` singleton initialized from `process.env.GCP_PROJECT!` and `region = 'me-central1'`.
 
 #### Functions in `src/config.ts`
@@ -667,18 +670,7 @@ export interface CorgeConfig {
     claimCheckThresholdBytes: number  // 204_800 (200 KiB)
     yieldBudgetRatio: number          // 0.75
   }
-  models: {
-    vertex: string                    // 'claude-haiku-5-5'
-    vertexExpert: string              // 'claude-sonnet-5-5'
-    vertexFlash: string               // 'gemini-3.5-flash-lite'
-    vertexEmbedding: string           // 'text-embedding-005'
-    vertexLocation: string            // 'global'
-    decisions: string                 // 'gemini-decision-1'
-    docAiLocation: string             // 'eu'
-    docAiProcessorDisplayName: string // 'corge-ocr'
-    docAiProcessorId: string          // '' (auto-resolved/created by displayName)
-    defaultAgentMaxSteps: number      // 8
-  }
+  ai: AiConfig                        // provider: 'vertex' | 'anthropic' | 'openai' + fallbackProviders?: AiProvider[]
   limits: {
     maxAttachments: number            // 500
     maxChatAttachments: number        // 20
@@ -691,12 +683,12 @@ export interface CorgeConfig {
     httpIp: RateLimitSpec             // { max: 60, windowMs: 60_000, keyBy: 'ip' }
     buckets: {
       docai: { windowMs: number; max: number }      // 60s, 1800
-      decisions: { windowMs: number; max: number }  // 60s, 1500
+      decisions: { windowMs: number; max: number }  // 60s, 2000
       ai: { windowMs: number; max: number }         // 60s, 2000
       workflows: { windowMs: number; max: number }  // 1s, 500
       firestore: { windowMs: number; max: number }  // 1s, 500
       storage: { windowMs: number; max: number }    // 1s, 1000
-      emails: { windowMs: number; max: number }     // 1s, 100
+      emails: { windowMs: number; max: number }     // 1s, 50
       payments: { windowMs: number; max: number }   // 1s, 100
     }
   }
@@ -709,8 +701,8 @@ export interface CorgeConfig {
     allowedOrigins: (string | RegExp)[]
     oauth?: { googleClientIds?: string[]; appleClientIds?: string[] }
   }
-  emails: EmailsConfig                // provider: 'sendgrid' | 'resend'
-  payments: PaymentsConfig            // provider: 'stripe' | 'dodo'
+  emails: EmailsConfig                // provider: 'resend' | 'postmark' | 'mailtrap' + fallbackProviders?: EmailProvider[]
+  payments: PaymentsConfig            // provider: 'stripe' | 'dodo' | 'paddle' + fallbackProviders?: PaymentProvider[]
 }
 ```
 
@@ -1000,15 +992,15 @@ Defines `DecisionQuestion`, `DecisionAnswer`, `DecideResult`, `VisionOptions`, `
 
 ### 8.2 [`src/ai/service.ts`](../src/ai/service.ts) (`class AiService`) & [`src/ai/utils.ts`](../src/ai/utils.ts)
 
-Structured probabilistic reasoning via Google Gemini Decisions API (`gemini-decision-1` + Vertex `gemini-3.5-flash-lite` fallback), Google Cloud Document AI (`OCR_PROCESSOR`) + single-pass Vertex `gemini-3.5-flash-lite` structured markdown extraction, Vertex Vision fallback, multi-provider Vertex LLM text/object generation (`gemini-*` & `claude-*`), and Vertex `text-embedding-005` embeddings.
+Multi-provider AI dispatch across **Google Cloud Vertex (`vertex`)**, **Anthropic Claude API (`anthropic`)**, and **OpenAI API (`openai`)** with ordered runtime failover (`[ai.provider, ...ai.fallbackProviders]`) and per-provider circuit breakers (`ai-vertex`, `ai-anthropic`, `ai-openai`, `docai`, `decisions-vertex`, `decisions-openai`, `ai-jina`).
 
 #### Helpers (`src/ai/utils.ts`) & Methods on `AiService` (`readonly #corge: Corge`)
-- **`formatDocAiPages`, `toGeminiDecisionQuestions`, `normalizeGeminiDecisionAnswers`, `buildVertexDecideFallbackSpec`, & `normalizeUsage`** *(Tier 4: Domain-Internal in `src/ai/utils.ts`)*: Formats Document AI Protobuf JSON pages (`### Page N\n...`, handling omitted zero `startIndex` and filtering blocks with `confidence < 0.4`), normalizes Gemini Decisions wire contracts, and builds Zod structured fallback schemas.
-- **`languageModel(modelId?)`** (`Tier 1: corge.ai.languageModel`): Returns a cached Vertex Google (`gemini-*`) or Vertex Anthropic (`claude-*`) `LanguageModel` instance.
-- **`decide(state, questions)`** (`Tier 1: corge.ai.decide`): Executes inside `this.#corge.internals.resilience.circuitBreaker('decisions', primaryFn, #vertexDecideFallback)`, acquires `'decisions'` limit, calls `POST https://generativelanguage.googleapis.com/v1beta/decisions` (`x-goog-api-key: GEMINI_API_KEY`), and validates discriminated union answers (`noul`, `choice`, `score`).
-- **`vision(documentUrl, opts?)`** (`Tier 1: corge.ai.vision`): Executes inside `this.#corge.internals.resilience.circuitBreaker('docai', primaryFn, #vertexVisionFallback)`, acquires `'docai'` limit, calls Document AI `:process` (`imagelessMode: true`, `fromStart: 30` on PDFs), extracts structured JSON from OCR markdown via `#extractAnnotationFromMarkdown` (`vertexFlash` `Output.object`) when `opts?.schema` is supplied, and falls back to `describeImage` for textless images.
-- **`generate(promptOrMessages, opts?)`** (`Tier 1: corge.ai.generate`): Executes inside `this.#corge.internals.resilience.circuitBreaker('vertex', ...)`, acquires `'ai'` limit, and calls `generateText` on `this.languageModel(model)` with optional `Output.object({ schema })`.
-- **`embed(text)`** (`Tier 1: corge.ai.embed`): Returns `null` if `text.trim().length < 15`; otherwise executes inside `this.#corge.internals.resilience.circuitBreaker('vertex', ...)`, acquires `'ai'` limit, and calls `embed()` on Vertex `text-embedding-005` (`768` dimensions, `AbortSignal.timeout(15_000)`).
+- **`resolveModelForProvider`, `isAiFailoverEligible`, `formatDocAiPages`, `toGeminiDecisionQuestions`, `toOpenAiDecisionQuestions`, `normalizeGeminiDecisionAnswers`, `normalizeOpenAiDecisionAnswers`, `buildStructuredDecideSpec`, & `normalizeUsage`** *(Tier 4: Domain-Internal in `src/ai/utils.ts`)*: Maps semantic model tiers (`'default' | 'expert' | 'fast'`) and foreign model slugs across providers during failover, normalizes Gemini and OpenAI Decisions wire contracts, and formats Document AI OCR pages.
+- **`languageModel(modelOrTier?, providerOverride?)`** (`Tier 1: corge.ai.languageModel`): Returns a resilient `LanguageModelV4` proxy wrapping `doGenerate` and `doStream` inside per-provider `ai-${provider}` circuit breakers with automatic runtime failover across `[ai.provider, ...ai.fallbackProviders]`.
+- **`decide(state, questions)`** (`Tier 1: corge.ai.decide`): Evaluates `noul`, `choice`, and `score` questions with ordered runtime failover across Gemini Decisions (`POST /v1beta/decisions`, `gemini-decision-1`), OpenAI Decisions (`POST /v1/decisions`, `gpt-6-luna`), and Anthropic structured output (`claude-haiku-5-5`).
+- **`vision(documentUrl, opts?)`** (`Tier 1: corge.ai.vision`): On `vertex`, runs GCP Document AI `OCR_PROCESSOR` (`docai` breaker, up to 30 PDF pages) + `'fast'` JSON extraction (with multimodal vision fallback); on `anthropic` (`claude-haiku-5-5`) and `openai` (`gpt-6-luna`), runs single-pass native PDF/image multimodal transcription + structured `annotation` extraction.
+- **`generate(promptOrMessages, opts?)`** (`Tier 1: corge.ai.generate`): Acquires `'ai'` rate limit and calls `generateText` on the resilient `this.languageModel(opts?.model ?? 'default', opts?.provider)` proxy with optional `Output.object({ schema })`.
+- **`embed(text)`** (`Tier 1: corge.ai.embed`): Returns `null` if `text.trim().length < 15`; otherwise follows `[ai.provider, ...ai.fallbackProviders]` 1:1 (`'vertex'` → Vertex `text-embedding-005` `768d`, `'openai'` → OpenAI `text-embedding-3-small` `768d`, `'anthropic'` → Jina `jina-embeddings-v3` `768d` via `JINA_API_KEY`).
 
 ---
 
@@ -1128,7 +1120,7 @@ Structured probabilistic reasoning via Google Gemini Decisions API (`gemini-deci
   - **`step('ocr')`**: Calls `this.#corge.ai.vision(await getDataUrl(), { fallbackVision: breaker.state === 'OPEN', signal })` (strictly 1 OCR pass per document).
   - **`step('vision')`**: Triggered if OCR returned empty markdown, or if an image was classified as `'other'`.
   - **`step('classify')`**: Calls `this.classify(markdown, types)` when `type` was not pre-specified.
-  - **`step('extract')`**: Single-pass structured extraction — when `markdown` is already available and `types[resolvedType]?.schema` exists, calls `this.#corge.ai.generate(markdown, { model: CORGE_CONFIG.models.vertexFlash, schema: types[resolvedType]!.schema, signal })` without re-uploading bytes or running a second OCR pass, then validates via `parseFields()`.
+  - **`step('extract')`**: Single-pass structured extraction — when `markdown` is already available and `types[resolvedType]?.schema` exists, calls `this.#corge.ai.generate(markdown, { model: 'fast', schema: types[resolvedType]!.schema, signal })` without re-uploading bytes or running a second OCR pass, then validates via `parseFields()`.
   - Rejects documents with `< 5` chars and `0` extracted fields as `'EMPTY_OR_UNREADABLE'`.
   - **`step('persist')`**: Writes `{ scan, scanError: null }` to `file/{ref}`. On permanent defect, persists `{ scanError: defect, scan: null }` to `file/{ref}` and throws `NonRetryableError`.
 
@@ -1314,7 +1306,7 @@ Session cookies, in-memory token caching (`auth/session.ts`), cross-instance Fir
 - **Tier**: `Tier 4: Private (#method)`
 - **Contract**:
   - `#webSearchTool`: Validates `url` with `isSafePublicUrl(url)` (falling back to DuckDuckGo HTML search if `url` is absent/unsafe) and streams up to `6,000` chars (URL) or `4,000` chars (search) via Jina Reader (`https://r.jina.ai/${target}`).
-  - `#createReasoningExpertTool`: Delegates complex multi-constraint reasoning problems to `ctx.corge.ai.generate(..., { schema: ReasoningExpertOutputDto, model: CORGE_CONFIG.models.vertexExpert ?? 'claude-sonnet-5-5', signal: ctx.abortSignal })`.
+  - `#createReasoningExpertTool`: Delegates complex multi-constraint reasoning problems to `ctx.corge.ai.generate(..., { schema: ReasoningExpertOutputDto, model: 'expert', signal: ctx.abortSignal })`.
   - `#buildAgentToolsForTurn`: Resolves `toolKeys` into AI SDK `ToolSet` entries, wrapping every workflow tool execution inside `runWithCorge(coreState, ...)` and stripping `FORBIDDEN_TOOL_SCHEMA_KEYS`.
   - `#resolveStepActiveTools`: Implements phased tool exposure via `agent.toolPresets` (`stepNumber === 0` exposes `discovery` + `workflow`; `stepNumber > 0` narrows to `workflow`).
 
@@ -1609,11 +1601,11 @@ export const { app, devApp, functions } = corge.createApp({
 
 #### [`src/emails/schema.ts`](../src/emails/schema.ts), [`src/emails/utils.ts`](../src/emails/utils.ts), [`src/emails/service.ts`](../src/emails/service.ts) & [`src/emails/routes.ts`](../src/emails/routes.ts) (`class EmailsService`)
 
-- **`corge.define.emailTemplates(templates)`**: Registers strongly-typed email templates with Zod `variables`, optional `onBeforeSend(vars, to)` interceptor (which can mutate variables or return `false` to suppress sending), and provider-specific overrides (`providers.sendgrid.templateId`, `providers.resend.{templateId, subject, html, text}`).
-- **`corge.emails.send(input, opts?)`**: Validates template variables, enforces deterministic idempotency via `idempotencyKey` (`em_<sha256_40>`), checks `email_suppression`, dispatches through SendGrid (`POST /v3/mail/send`) or Resend (`POST /emails`) inside the `'emails'` circuit breaker and rate limiter, and writes an audit record to `email_log`.
-- **`corge.emails.sendBatch(inputs, opts?)`**: Dispatches up to 100 emails in a single batch (using Resend's native `/emails/batch` endpoint or parallel `send` calls) and returns `{ total, sent, suppressed, failed, results }`.
-- **`corge.emails.sendAuthEmail(purpose, to, vars?, opts?)`**: Dispatches transactional authentication emails (`verify_email`, `reset_password`, `verify_recovery_email`, `account_recovery`, `welcome`, `security_alert`) with `onAuthEmail` / `authFlows[purpose].onSend` hooks, custom templates, or default HTML/text auth templates via SendGrid / Resend (or in-memory `#devEmailOutbox` in dev/test).
-- **`corge.internals.emails.verifyAndProcessWebhook(provider, rawBody, headers)`**: Verifies Resend (`svix-id`, `svix-timestamp`, `svix-signature`) and SendGrid (`x-twilio-email-event-webhook-timestamp`, `x-twilio-email-event-webhook-signature`) HMAC-SHA256 webhooks in constant time with replay-window enforcement, updates `email_log` status (`delivered`, `opened`, `clicked`, `bounced`, `complained`), and automatically records hard bounces and spam complaints in `email_suppression`.
+- **`corge.define.emailTemplates(templates)`**: Registers code-first, strongly-typed email templates with Zod `variables`, `(vars) => string` or `{{var}}` (HTML-escaped) / `{{{var}}}` (raw) interpolation on `subject` / `html` / `text`, and optional `onBeforeSend(vars, to)` interceptor (which can mutate variables or return `false` to suppress sending).
+- **`corge.emails.send(input, opts?)`**: Validates template variables, enforces deterministic idempotency via `idempotencyKey` (`em_<sha256_40>`), checks `email_suppression`, dispatches across **Resend** (`POST /emails`), **Postmark** (`POST /email`), and **Mailtrap** (`POST /api/send`) with ordered runtime failover (`[emails.provider, ...emails.fallbackProviders]`) and per-provider `emails-${provider}` circuit breakers, and writes an audit record to `email_log`.
+- **`corge.emails.sendBatch(inputs, opts?)`**: Dispatches up to 100 emails in a single native batch (`Resend` `/emails/batch`, `Postmark` `/email/batch`, `Mailtrap` `/api/batch`) with runtime failover and returns `{ total, sent, suppressed, failed, results }`.
+- **`corge.emails.sendAuthEmail(purpose, to, vars?, opts?)`**: Dispatches transactional authentication emails (`verify_email`, `reset_password`, `verify_recovery_email`, `account_recovery`, `welcome`, `security_alert`) with `onAuthEmail` / `authFlows[purpose].onSend` hooks, custom code templates, or default HTML/text auth templates across Resend / Postmark / Mailtrap (or in-memory `#devEmailOutbox` in dev/test).
+- **`corge.internals.emails.verifyAndProcessWebhook(provider, rawBody, headers)`**: Verifies Resend (`svix-id`, `svix-timestamp`, `svix-signature`), Postmark (`x-postmark-webhook-secret` / Basic Auth), and Mailtrap (`mailtrap-signature` HMAC-SHA256) webhooks in constant time (`timingSafeEqual`), updates `email_log` status (`delivered`, `opened`, `clicked`, `bounced`, `complained`), and automatically records hard bounces and spam complaints in shared `email_suppression`.
 
 ---
 
@@ -1621,8 +1613,8 @@ export const { app, devApp, functions } = corge.createApp({
 
 #### [`src/payments/schema.ts`](../src/payments/schema.ts), [`src/payments/utils.ts`](../src/payments/utils.ts), [`src/payments/billing.ts`](../src/payments/billing.ts), [`src/payments/service.ts`](../src/payments/service.ts) & [`src/payments/routes.ts`](../src/payments/routes.ts) (`class PaymentsService` & `class PaymentsBillingEngine`)
 
-- **`corge.define.plans(plans)` & `corge.define.products(products)`**: Declaratively registers recurring/free subscription tiers (`month` / `year` / `free`, environment-scoped `providers.{stripe, dodo}`, `quota.aiTokens`, `quota.metrics`, `quota.overage`) and one-time purchasable products/add-ons (`grants.{aiTokens, credits, metrics}`). Automatically sets `CORGE_CONFIG.payments.enabled = true` when definitions are registered.
-- **`corge.payments.{createCheckout, createPaymentLink, createInvoice, charge}`**: Supports both predefined catalog aliases (`{ plan }` / `{ product }`) and dynamic ad-hoc line items (`{ custom: { name, amount, currency, quantity } }`) across **Stripe** (`/v1/*` form-urlencoded REST API) and **Dodo Payments** (`https://live.dodopayments.com` / `https://test.dodopayments.com` JSON REST API) inside the `'payments'` circuit breaker and rate limiter.
-- **`corge.payments.{subscribe, changeSubscriptionTier, cancelSubscription, getSubscription}`**: Manages full subscription lifecycles including free-tier activation, recurring checkouts, prorated upgrades/downgrades (`prorated_immediately`, `next_cycle`, `none`), and period-end or immediate cancellation, synchronized with `payment_customer/{userId}`.
-- **`corge.payments.{getUsage, checkQuota, recordUsage}` & Automatic AI Token Metering (`corge.internals.payments.{enforceAiQuota, trackAiUsage}`)**: Tracks per-period AI token and custom metric consumption in `payment_usage/{userId}_{periodKey}` via Firestore transactions, automatically deducts one-time `bonusAiTokens` / `bonusMetrics` when base plan limits are reached, enforces `402 Payment Required` (`QUOTA_EXCEEDED`) when hard caps are exceeded, and ingests overage meter events to Dodo (`POST /events/ingest`) and Stripe (`POST /v1/billing/meter_events`).
-- **`corge.internals.payments.verifyAndProcessWebhook(provider, rawBody, headers)`**: Verifies Stripe (`Stripe-Signature: t=...,v1=...`) and Dodo Payments (`webhook-id`, `webhook-timestamp`, `webhook-signature` Standard Webhooks `whsec_<base64>`) HMAC-SHA256 signatures using `node:crypto` `timingSafeEqual` and a 300-second replay window, deduplicates events in `payment_transaction/{txId}`, reconciles `payment_customer/{userId}`, and atomically grants `bonusAiTokens` / `credits` / `bonusMetrics`.
+- **`corge.define.plans(plans)` & `corge.define.products(products)`**: Declaratively registers recurring/free subscription tiers (`month` / `year` / `free`, optional environment-scoped `providers.{stripe, dodo, paddle}`, `quota.aiTokens`, `quota.metrics`, `quota.overage`) and one-time purchasable products/add-ons (`grants.{aiTokens, credits, metrics}`). Automatically sets `CORGE_CONFIG.payments.enabled = true` when definitions are registered.
+- **`corge.payments.{createCheckout, createPaymentLink, createInvoice, charge}`**: Supports both predefined catalog aliases (`{ plan }` / `{ product }`) and dynamic ad-hoc line items (`{ custom: { name, amount, currency, quantity } }`) across **Stripe** (`/v1/*`), **Dodo Payments** (`live.dodopayments.com` / `test.dodopayments.com`), and **Paddle Billing** (`api.paddle.com` / `sandbox-api.paddle.com`, inline non-catalog `price` + `product`) with per-provider `payments-${provider}` circuit breakers and ordered runtime failover (`[payments.provider, ...payments.fallbackProviders]`).
+- **`corge.payments.{subscribe, changeSubscriptionTier, cancelSubscription, getSubscription}`**: Manages full subscription lifecycles including free-tier activation, recurring checkouts, prorated upgrades/downgrades (`prorated_immediately`, `next_cycle`, `none`), and period-end or immediate cancellation, pinned to `cust.activeProvider` and synchronized with `payment_customer/{userId}`.
+- **`corge.payments.{getUsage, checkQuota, recordUsage}` & Automatic AI Token Metering (`corge.internals.payments.{enforceAiQuota, trackAiUsage}`)**: Tracks per-period AI token and custom metric consumption in `payment_usage/{userId}_{periodKey}` via Firestore transactions, automatically deducts one-time `bonusAiTokens` / `bonusMetrics` when base plan limits are reached, enforces `402 Payment Required` (`QUOTA_EXCEEDED`) when hard caps are exceeded, and reports overages to Stripe (`POST /v1/billing/meter_events`), Dodo (`POST /events/ingest`), and Paddle (`POST /subscriptions/{id}/charge` batched in `unitTokens` × `rateCents` blocks).
+- **`corge.internals.payments.verifyAndProcessWebhook(provider, rawBody, headers)`**: Verifies Stripe (`Stripe-Signature: t=...,v1=...`), Dodo Payments (`webhook-id`, `webhook-timestamp`, `webhook-signature` Standard Webhooks `whsec_<base64>`), and Paddle (`Paddle-Signature: ts=...;h1=...`) HMAC-SHA256 signatures using `node:crypto` `timingSafeEqual` and a 300-second replay window, deduplicates events in `payment_transaction/{txId}`, reconciles `payment_customer/{userId}`, and atomically grants `bonusAiTokens` / `credits` / `bonusMetrics`.

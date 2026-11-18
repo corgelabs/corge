@@ -1,11 +1,16 @@
 import { z } from 'zod'
 import type {
+  AiConfig,
+  AiProvider,
   AiUsageSummary,
   DecisionAnswer,
   DecisionQuestion,
   DocAiLayoutUnit,
   DocAiProcessResponse,
-  GeminiDecisionsWireResponse
+  GeminiDecisionsWireResponse,
+  OpenAiDecisionAnswerWire,
+  OpenAiDecisionProbabilityEntry,
+  OpenAiDecisionQuestionWire
 } from './schema'
 
 const sliceUnitText = (fullText: string, unit: DocAiLayoutUnit): string =>
@@ -35,6 +40,86 @@ export const formatDocAiPages = (res: DocAiProcessResponse): string => {
     .join('\n\n')
 
   return rendered || `### Page 1\n${fullText.trim()}`
+}
+
+export const resolveModelForProvider = (
+  provider: AiProvider,
+  requested: string | undefined,
+  aiCfg: AiConfig
+): string => {
+  const spec = aiCfg[provider]
+  if (!requested || requested === 'default') return spec.defaultModel
+  if (requested === 'expert') return spec.expertModel
+  if (requested === 'fast') return spec.fastModel
+
+  const isNative =
+    provider === 'vertex'
+      ? requested.startsWith('claude-') || requested.startsWith('gemini-')
+      : provider === 'anthropic'
+        ? requested.startsWith('claude-')
+        : requested.startsWith('gpt-') || /^o\d/.test(requested)
+  if (isNative) return requested
+
+  const lower = requested.toLowerCase()
+  if (/(sonnet|opus|fable|astra|sol|pro|argon|carbon|hydrogen)/.test(lower)) return spec.expertModel
+  if (/(flash|lite|nano)/.test(lower)) return spec.fastModel
+  return spec.defaultModel
+}
+
+const unwrapSdkError = (err: unknown): Record<string, unknown> => {
+  if (!err || typeof err !== 'object') return {}
+  const rec = err as Record<string, unknown>
+  if (rec.lastError && typeof rec.lastError === 'object') return rec.lastError as Record<string, unknown>
+  if (Array.isArray(rec.errors) && rec.errors.length > 0) {
+    const last = rec.errors[rec.errors.length - 1]
+    if (last && typeof last === 'object') return last as Record<string, unknown>
+  }
+  if (rec.cause && typeof rec.cause === 'object') return rec.cause as Record<string, unknown>
+  return rec
+}
+
+export const isAiFailoverEligible = (err: unknown): boolean => {
+  if (!err) return false
+  if (typeof err === 'object' && (err as { isCircuitBreakerOpen?: unknown }).isCircuitBreakerOpen === true) {
+    return true
+  }
+  const top = typeof err === 'object' ? (err as Record<string, unknown>) : {}
+  const inner = unwrapSdkError(err)
+  const rawStatus =
+    typeof top.statusCode === 'number'
+      ? top.statusCode
+      : typeof top.status === 'number'
+        ? top.status
+        : typeof inner.statusCode === 'number'
+          ? inner.statusCode
+          : typeof inner.status === 'number'
+            ? inner.status
+            : undefined
+  const msg = `${err instanceof Error ? err.message : String(err)} ${typeof inner.message === 'string' ? inner.message : ''}`
+  const lower = msg.toLowerCase()
+  const parsedStatusMatch = /\b(?:status(?:\s+code)?|http)\s*[:=]?\s*(\d{3})\b/i.exec(msg)
+  const status = rawStatus ?? (parsedStatusMatch?.[1] ? Number(parsedStatusMatch[1]) : undefined)
+
+  if (status !== undefined) {
+    return status === 408 || status === 429 || status >= 500
+  }
+
+  return (
+    top.name === 'AbortError' ||
+    top.name === 'TimeoutError' ||
+    inner.name === 'AbortError' ||
+    inner.name === 'TimeoutError' ||
+    lower.includes('timed out') ||
+    lower.includes('timeout') ||
+    lower.includes('econnreset') ||
+    lower.includes('econnrefused') ||
+    lower.includes('etimedout') ||
+    lower.includes('socket hang up') ||
+    lower.includes('fetch failed') ||
+    lower.includes('overloaded') ||
+    lower.includes('service unavailable') ||
+    lower.includes('bad gateway')
+  )
 }
 
 export const toGeminiDecisionQuestions = (
@@ -108,7 +193,97 @@ export const normalizeGeminiDecisionAnswers = (
   return out
 }
 
-export const buildVertexDecideFallbackSpec = (questions: Record<string, DecisionQuestion>) => {
+const normalizeOpenAiProbabilities = (
+  raw?: OpenAiDecisionProbabilityEntry[] | Record<string, number>
+): Record<string, number> => {
+  if (!raw) return {}
+  if (!Array.isArray(raw)) return raw
+  const out: Record<string, number> = {}
+  for (const item of raw) {
+    const key = item.value ?? item.level
+    if (key !== undefined && typeof item.probability === 'number') {
+      out[key] = item.probability
+    }
+  }
+  return out
+}
+
+export const toOpenAiDecisionQuestions = (
+  questions: Record<string, DecisionQuestion>
+): { wireQuestions: OpenAiDecisionQuestionWire[]; trivialAnswers: Record<string, DecisionAnswer> } => {
+  const wireQuestions: OpenAiDecisionQuestionWire[] = []
+  const trivialAnswers: Record<string, DecisionAnswer> = {}
+
+  for (const [name, q] of Object.entries(questions)) {
+    if (q.type === 'noul') {
+      const instructions = [
+        q.instructions,
+        q.criteria?.true ? `Criteria for true:\n${q.criteria.true}` : undefined,
+        q.criteria?.false ? `Criteria for false:\n${q.criteria.false}` : undefined
+      ]
+        .filter((part): part is string => Boolean(part))
+        .join('\n\n')
+      wireQuestions.push({ type: 'predicate', name, instructions })
+    } else if (q.type === 'choice') {
+      const entries = Object.entries(q.criteria)
+      if (entries.length === 1) {
+        const only = entries[0]![0]
+        trivialAnswers[name] = { type: 'choice', choice: only, probabilities: { [only]: 1 }, confidence: 1 }
+      } else {
+        wireQuestions.push({
+          type: 'choice',
+          name,
+          instructions: q.instructions,
+          choices: entries.map(([value, description]) => ({ value, description }))
+        })
+      }
+    } else {
+      wireQuestions.push({
+        type: 'score',
+        name,
+        instructions: q.instructions,
+        levels: q.criteria.map((description, idx) => ({ label: String(idx), description }))
+      })
+    }
+  }
+
+  return { wireQuestions, trivialAnswers }
+}
+
+export const normalizeOpenAiDecisionAnswers = (
+  questions: Record<string, DecisionQuestion>,
+  rawAnswers: OpenAiDecisionAnswerWire[] = [],
+  trivialAnswers: Record<string, DecisionAnswer> = {}
+): Record<string, DecisionAnswer> => {
+  const out: Record<string, DecisionAnswer> = { ...trivialAnswers }
+  const byName = new Map<string, OpenAiDecisionAnswerWire>()
+  for (const item of rawAnswers) {
+    if (item && typeof item.name === 'string') byName.set(item.name, item)
+  }
+
+  for (const [key, q] of Object.entries(questions)) {
+    if (key in out) continue
+    const raw = byName.get(key)
+    if (!raw || raw.type === 'refusal') continue
+    if (q.type === 'noul' && raw.type === 'predicate' && typeof raw.probability === 'number') {
+      const p = Math.min(1, Math.max(0, raw.probability))
+      out[key] = { type: 'noul', noul: p, confidence: Math.max(p, 1 - p) }
+    } else if (q.type === 'choice' && raw.type === 'choice' && typeof raw.choice === 'string') {
+      const probs = normalizeOpenAiProbabilities(raw.probabilities)
+      const finalProbs = Object.keys(probs).length > 0 ? probs : { [raw.choice]: 1 }
+      const confidence = finalProbs[raw.choice] ?? Math.max(...Object.values(finalProbs), 1)
+      out[key] = { type: 'choice', choice: raw.choice, probabilities: finalProbs, confidence }
+    } else if (q.type === 'score' && raw.type === 'score' && typeof raw.score === 'number') {
+      const probs = normalizeOpenAiProbabilities(raw.probabilities)
+      const probValues = Object.values(probs)
+      const confidence = probValues.length > 0 ? Math.max(...probValues) : 0.8
+      out[key] = { type: 'score', score: raw.score, probabilities: probs, confidence }
+    }
+  }
+  return out
+}
+
+export const buildStructuredDecideSpec = (questions: Record<string, DecisionQuestion>) => {
   const shape: Record<string, z.ZodTypeAny> = {}
   const promptLines: string[] = []
 
@@ -130,6 +305,30 @@ export const buildVertexDecideFallbackSpec = (questions: Record<string, Decision
   }
 
   return { schema: z.object(shape), promptBlock: promptLines.join('\n') }
+}
+
+export const parseStructuredDecideOutput = (
+  questions: Record<string, DecisionQuestion>,
+  rawOut: Record<string, Record<string, unknown>>
+): Record<string, DecisionAnswer> => {
+  const answers: Record<string, DecisionAnswer> = {}
+  for (const [key, q] of Object.entries(questions)) {
+    const item = rawOut[key] ?? {}
+    if (q.type === 'noul') {
+      const noul = Math.min(1, Math.max(0, Number(item.noul ?? 0)))
+      const conf = Math.min(1, Math.max(0, Number(item.confidence ?? Math.max(noul, 1 - noul))))
+      answers[key] = { type: 'noul', noul, confidence: conf }
+    } else if (q.type === 'choice') {
+      const chosen = String(item.choice ?? Object.keys(q.criteria)[0] ?? '')
+      const conf = Math.min(1, Math.max(0, Number(item.confidence ?? 0.8)))
+      answers[key] = { type: 'choice', choice: chosen, probabilities: { [chosen]: conf }, confidence: conf }
+    } else {
+      const sc = Number(item.score ?? 0)
+      const conf = Math.min(1, Math.max(0, Number(item.confidence ?? 0.8)))
+      answers[key] = { type: 'score', score: sc, probabilities: {}, confidence: conf }
+    }
+  }
+  return answers
 }
 
 export const normalizeUsage = (

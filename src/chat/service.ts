@@ -144,7 +144,7 @@ export class ChatService {
           `Problem:\n${problemStatement}\n\nConstraints & Context:\n${constraintsAndContext}`,
           {
             schema: ReasoningExpertOutputDto,
-            model: CORGE_CONFIG.models.vertexExpert ?? 'claude-sonnet-5-5',
+            model: 'expert',
             signal: ctx.abortSignal
           }
         )
@@ -256,7 +256,7 @@ export class ChatService {
     ]
 
     const messagesForLlm: ModelMessage[] = messages.filter((m) => m.role !== 'system')
-    const selectedModel = opts?.modelOverride || agent.model || CORGE_CONFIG.models.vertex
+    const selectedModel = opts?.modelOverride || agent.model || 'default'
 
     return streamText({
       model: this.#corge.ai.languageModel(selectedModel),
@@ -274,7 +274,7 @@ export class ChatService {
             })
           }
         : {}),
-      stopWhen: stepCountIs(agent.maxSteps ?? CORGE_CONFIG.models.defaultAgentMaxSteps),
+      stopWhen: stepCountIs(agent.maxSteps ?? CORGE_CONFIG.ai.defaultAgentMaxSteps),
       ...(opts?.abortSignal ? { abortSignal: opts.abortSignal } : {}),
       onFinish: async (event) => {
         const usageObj = event.totalUsage

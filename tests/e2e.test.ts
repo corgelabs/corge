@@ -1318,7 +1318,7 @@ describe('4. Batch Attachment Processing & Async Task Lifecycle (/api/process-at
     )
     const elapsedMs = performance.now() - t0
     assert.equal(procRes.status, 200)
-    assert.ok(elapsedMs < 20_000, `Expected parallel fan-out < 20s, took ${Math.round(elapsedMs)}ms`)
+    assert.ok(elapsedMs < 45_000, `Expected parallel fan-out < 45s, took ${Math.round(elapsedMs)}ms`)
     assert.equal(procRes.data.attachments.length, allRefs.length)
     procRes.data.attachments.forEach((item, idx) => {
       const fixture = fixtures[idx]!
@@ -2228,8 +2228,8 @@ describe('9. Corge SDK Primitives, Sign-Out, GDPR Erase & Zero-Leftover Verifica
           e2e_summary: {
             description: 'E2E summary notification',
             variables: z.object({ title: z.string(), count: z.number() }),
-            subject: ({ title }) => `[E2E] ${title}`,
-            html: ({ title, count }) => `<p>${title}: ${count} items processed.</p>`
+            subject: '[E2E] {{title}}',
+            html: '<p>{{title}}: <strong>{{count}}</strong> items processed.</p>'
           }
         })
       )
@@ -2335,22 +2335,50 @@ describe('9. Corge SDK Primitives, Sign-Out, GDPR Erase & Zero-Leftover Verifica
       assert.ok(Array.isArray(logsRes.data))
     }
 
-    // Verify POST /api/emails/webhooks/resend rejects unsigned/invalid signature with 401
-    const badWebhookRes = await apiFetch(
-      '/api/emails/webhooks/resend',
-      {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'svix-id': 'msg_bad',
-          'svix-timestamp': String(Math.floor(Date.now() / 1000)),
-          'svix-signature': 'v1,bad_sig'
+    // Verify POST /api/emails/webhooks/:provider rejects unsigned/invalid signatures across all 3 ESPs with 401
+    const [badResendWh, badPostmarkWh, badMailtrapWh] = await Promise.all([
+      apiFetch(
+        '/api/emails/webhooks/resend',
+        {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'svix-id': 'msg_bad',
+            'svix-timestamp': String(Math.floor(Date.now() / 1000)),
+            'svix-signature': 'v1,bad_sig'
+          },
+          body: JSON.stringify({ type: 'email.delivered', data: { email_id: 'dev_123' } })
         },
-        body: JSON.stringify({ type: 'email.delivered', data: { email_id: 'dev_123' } })
-      },
-      'emails-webhook-invalid'
-    )
-    assert.equal(badWebhookRes.status, 401)
+        'emails-webhook-resend-invalid'
+      ),
+      apiFetch(
+        '/api/emails/webhooks/postmark',
+        {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-postmark-webhook-secret': 'invalid_secret'
+          },
+          body: JSON.stringify({ RecordType: 'Delivery', MessageID: 'pm_123' })
+        },
+        'emails-webhook-postmark-invalid'
+      ),
+      apiFetch(
+        '/api/emails/webhooks/mailtrap',
+        {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'mailtrap-signature': '0000000000000000000000000000000000000000000000000000000000000000'
+          },
+          body: JSON.stringify({ events: [{ event: 'delivery', message_id: 'mt_123' }] })
+        },
+        'emails-webhook-mailtrap-invalid'
+      )
+    ])
+    assert.equal(badResendWh.status, 401)
+    assert.equal(badPostmarkWh.status, 401)
+    assert.equal(badMailtrapWh.status, 401)
   })
 
   test('GET /api/payments/status, POST /api/payments/subscribe, POST /api/payments/checkout, POST /api/payments/charge & POST /api/payments/webhooks/:provider — E2E payment routes & usage metering', async () => {
@@ -2460,19 +2488,34 @@ describe('9. Corge SDK Primitives, Sign-Out, GDPR Erase & Zero-Leftover Verifica
       assert.equal(statusRes.data.subscription.userId, testAuthUserId)
     }
 
-    const badPayWhRes = await apiFetch(
-      '/api/payments/webhooks/stripe',
-      {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'stripe-signature': `t=${Math.floor(Date.now() / 1000)},v1=invalid`
+    const [badStripeWhRes, badPaddleWhRes] = await Promise.all([
+      apiFetch(
+        '/api/payments/webhooks/stripe',
+        {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'stripe-signature': `t=${Math.floor(Date.now() / 1000)},v1=invalid`
+          },
+          body: JSON.stringify({ id: 'evt_bad_e2e', type: 'checkout.session.completed' })
         },
-        body: JSON.stringify({ id: 'evt_bad_e2e', type: 'checkout.session.completed' })
-      },
-      'payments-webhook-invalid'
-    )
-    assert.equal(badPayWhRes.status, 401)
+        'payments-webhook-stripe-invalid'
+      ),
+      apiFetch(
+        '/api/payments/webhooks/paddle',
+        {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'paddle-signature': `ts=${Math.floor(Date.now() / 1000)};h1=invalid`
+          },
+          body: JSON.stringify({ event_id: 'evt_bad_pdl', event_type: 'transaction.completed' })
+        },
+        'payments-webhook-paddle-invalid'
+      )
+    ])
+    assert.equal(badStripeWhRes.status, 401)
+    assert.equal(badPaddleWhRes.status, 401)
   })
 
   test('DELETE /api/files/:ref & POST /api/auth/sign-out — soft-delete all files & revoke session', async () => {

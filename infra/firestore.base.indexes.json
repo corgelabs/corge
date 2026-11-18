@@ -113,6 +113,14 @@
         { "fieldPath": "dodoCustomerId", "order": "ASCENDING" },
         { "fieldPath": "deleted", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "payment_customer",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "paddleCustomerId", "order": "ASCENDING" },
+        { "fieldPath": "deleted", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [

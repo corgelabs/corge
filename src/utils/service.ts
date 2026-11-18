@@ -264,15 +264,25 @@ export class ResilienceService {
 
   #isUpstreamProviderError = (err: unknown): boolean => {
     if (!err) return false
-    const rec = typeof err === 'object' ? (err as Record<string, unknown>) : {}
+    const top = typeof err === 'object' ? (err as Record<string, unknown>) : {}
+    const inner =
+      top.lastError && typeof top.lastError === 'object'
+        ? (top.lastError as Record<string, unknown>)
+        : top.cause && typeof top.cause === 'object'
+          ? (top.cause as Record<string, unknown>)
+          : top
     const rawStatus =
-      typeof rec.statusCode === 'number'
-        ? rec.statusCode
-        : typeof rec.status === 'number'
-          ? rec.status
-          : undefined
-    const code = typeof rec.code === 'string' ? rec.code.toUpperCase() : ''
-    const msg = err instanceof Error ? err.message : String(err)
+      typeof top.statusCode === 'number'
+        ? top.statusCode
+        : typeof top.status === 'number'
+          ? top.status
+          : typeof inner.statusCode === 'number'
+            ? inner.statusCode
+            : typeof inner.status === 'number'
+              ? inner.status
+              : undefined
+    const code = typeof top.code === 'string' ? top.code.toUpperCase() : typeof inner.code === 'string' ? inner.code.toUpperCase() : ''
+    const msg = `${err instanceof Error ? err.message : String(err)} ${typeof inner.message === 'string' ? inner.message : ''}`
     const lower = msg.toLowerCase()
 
     const parsedStatusMatch = /\b(?:status(?:\s+code)?|http)\s*[:=]?\s*(\d{3})\b/i.exec(msg)

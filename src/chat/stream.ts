@@ -127,7 +127,7 @@ export class ChatStreamEngine {
     if (!this.#agentRegistry.has(agentId)) {
       return this.#corge.errors.httpError(404, `Unknown agent: ${agentId}`, 'NOT_FOUND')
     }
-    const model = input.model ?? existing?.model ?? CORGE_CONFIG.models.vertex
+    const model = input.model ?? existing?.model ?? 'default'
 
     if (existing && targetId) {
       const patch = { title, model, ...(input.summary !== undefined ? { summary: input.summary } : {}), deleted: false }
@@ -408,7 +408,7 @@ export class ChatStreamEngine {
     activeGenerations.set(key, activeEntry)
 
     const title = body.title ?? existing?.title ?? deriveTitle(body.message)
-    const selectedModel = body.model ?? existing?.model ?? agent.model ?? CORGE_CONFIG.models.vertex
+    const selectedModel = body.model ?? existing?.model ?? agent.model ?? 'default'
     const chatDocRef = this.#corge.db.firestore().collection('chat').doc(chatId)
     let unsubCancelWatch: (() => void) | undefined
 
