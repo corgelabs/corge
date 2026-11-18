@@ -153,7 +153,7 @@ export class AttachmentsService {
             async () =>
               (
                 await this.#corge.ai.generate(markdown, {
-                  model: 'fast',
+                  model: this.#corge.config.ai.vertex.extractionModel,
                   system: DEFAULT_EXTRACTION_PROMPT,
                   schema: typeSpec.schema,
                   signal

@@ -97,7 +97,7 @@ export interface RateLimitSpec {
 export type RateLimitConfig = RateLimitSpec | false
 
 export type AiProvider = 'vertex' | 'anthropic' | 'openai'
-export type AiModelTier = 'default' | 'expert' | 'fast'
+export type AiModelTier = 'default' | 'expert'
 
 export interface AiConfig {
   provider: AiProvider
@@ -107,7 +107,7 @@ export interface AiConfig {
     location: string
     defaultModel: string
     expertModel: string
-    fastModel: string
+    extractionModel: string
     decisionsModel: string
     embeddingModel: string
     docAiLocation: string
@@ -118,7 +118,6 @@ export interface AiConfig {
     baseUrl: string
     defaultModel: string
     expertModel: string
-    fastModel: string
     ocrModel: string
     decisionsModel: string
   }
@@ -126,7 +125,6 @@ export interface AiConfig {
     baseUrl: string
     defaultModel: string
     expertModel: string
-    fastModel: string
     ocrModel: string
     decisionsModel: string
     embeddingModel: string
@@ -407,7 +405,7 @@ export const CORGE_CONFIG: CorgeConfig = {
       location: 'global',
       defaultModel: 'claude-haiku-5-5',
       expertModel: 'claude-sonnet-5-5',
-      fastModel: 'claude-haiku-5-5',
+      extractionModel: 'gemini-3.5-flash-lite',
       decisionsModel: 'gemini-decision-1',
       embeddingModel: 'text-embedding-005',
       docAiLocation: 'eu',
@@ -418,7 +416,6 @@ export const CORGE_CONFIG: CorgeConfig = {
       baseUrl: 'https://api.anthropic.com/v1',
       defaultModel: 'claude-haiku-5-5',
       expertModel: 'claude-sonnet-5-5',
-      fastModel: 'claude-haiku-5-5',
       ocrModel: 'claude-haiku-5-5',
       decisionsModel: 'claude-haiku-5-5'
     },
@@ -426,7 +423,6 @@ export const CORGE_CONFIG: CorgeConfig = {
       baseUrl: 'https://api.openai.com/v1',
       defaultModel: 'gpt-6-luna',
       expertModel: 'gpt-6.2-sol',
-      fastModel: 'gpt-6-luna',
       ocrModel: 'gpt-6-luna',
       decisionsModel: 'gpt-6-luna',
       embeddingModel: 'text-embedding-3-small'

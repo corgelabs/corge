@@ -470,7 +470,7 @@ flowchart LR
   SF --> ShaDedup["#findCrossUserByShaSum(ref, shaSum, type) (cross-user Firestore dedupe)"]
   ShaDedup -- "Miss" --> OCR["step('ocr'): ai.vision(dataUrl) -> Google Document AI OCR (or Vertex Vision if breaker OPEN)"]
   OCR --> Classify["step('classify'): attachments.classify(markdown) -> ai.decide() (Gemini Decisions)"]
-  Classify --> Extract["step('extract'): ai.generate(markdown, { model: 'fast', schema }) -> parseFields() via Zod"]
+  Classify --> Extract["step('extract'): ai.generate(markdown, { model: ai.vertex.extractionModel, schema }) -> parseFields() via Zod"]
   Extract --> Persist["step('persist'): db.update('file', ref, { scan, scanError: null })"]
   Persist --> Defects{"Permanent Defect? (400/415/422/encrypted/blank)"}
   Defects -- "Yes" --> PersistErr["Persist FileScanError on 'file' doc & throw NonRetryableError"]
@@ -995,10 +995,10 @@ Defines `DecisionQuestion`, `DecisionAnswer`, `DecideResult`, `VisionOptions`, `
 Multi-provider AI dispatch across **Google Cloud Vertex (`vertex`)**, **Anthropic Claude API (`anthropic`)**, and **OpenAI API (`openai`)** with ordered runtime failover (`[ai.provider, ...ai.fallbackProviders]`) and per-provider circuit breakers (`ai-vertex`, `ai-anthropic`, `ai-openai`, `docai`, `decisions-vertex`, `decisions-openai`, `ai-jina`).
 
 #### Helpers (`src/ai/utils.ts`) & Methods on `AiService` (`readonly #corge: Corge`)
-- **`resolveModelForProvider`, `isAiFailoverEligible`, `formatDocAiPages`, `toGeminiDecisionQuestions`, `toOpenAiDecisionQuestions`, `normalizeGeminiDecisionAnswers`, `normalizeOpenAiDecisionAnswers`, `buildStructuredDecideSpec`, & `normalizeUsage`** *(Tier 4: Domain-Internal in `src/ai/utils.ts`)*: Maps semantic model tiers (`'default' | 'expert' | 'fast'`) and foreign model slugs across providers during failover, normalizes Gemini and OpenAI Decisions wire contracts, and formats Document AI OCR pages.
+- **`resolveModelForProvider`, `isAiFailoverEligible`, `formatDocAiPages`, `toGeminiDecisionQuestions`, `toOpenAiDecisionQuestions`, `normalizeGeminiDecisionAnswers`, `normalizeOpenAiDecisionAnswers`, `buildStructuredDecideSpec`, & `normalizeUsage`** *(Tier 4: Domain-Internal in `src/ai/utils.ts`)*: Maps semantic model tiers (`'default' | 'expert'`) and foreign model slugs across providers during failover, normalizes Gemini and OpenAI Decisions wire contracts, and formats Document AI OCR pages.
 - **`languageModel(modelOrTier?, providerOverride?)`** (`Tier 1: corge.ai.languageModel`): Returns a resilient `LanguageModelV4` proxy wrapping `doGenerate` and `doStream` inside per-provider `ai-${provider}` circuit breakers with automatic runtime failover across `[ai.provider, ...ai.fallbackProviders]`.
 - **`decide(state, questions)`** (`Tier 1: corge.ai.decide`): Evaluates `noul`, `choice`, and `score` questions with ordered runtime failover across Gemini Decisions (`POST /v1beta/decisions`, `gemini-decision-1`), OpenAI Decisions (`POST /v1/decisions`, `gpt-6-luna`), and Anthropic structured output (`claude-haiku-5-5`).
-- **`vision(documentUrl, opts?)`** (`Tier 1: corge.ai.vision`): On `vertex`, runs GCP Document AI `OCR_PROCESSOR` (`docai` breaker, up to 30 PDF pages) + `'fast'` JSON extraction (with multimodal vision fallback); on `anthropic` (`claude-haiku-5-5`) and `openai` (`gpt-6-luna`), runs single-pass native PDF/image multimodal transcription + structured `annotation` extraction.
+- **`vision(documentUrl, opts?)`** (`Tier 1: corge.ai.vision`): On `vertex`, runs GCP Document AI `OCR_PROCESSOR` (`docai` breaker, up to 30 PDF pages) + `extractionModel` (`gemini-3.5-flash-lite`) JSON extraction (with multimodal vision fallback); on `anthropic` (`claude-haiku-5-5`) and `openai` (`gpt-6-luna`), runs single-pass native PDF/image multimodal transcription + structured `annotation` extraction.
 - **`generate(promptOrMessages, opts?)`** (`Tier 1: corge.ai.generate`): Acquires `'ai'` rate limit and calls `generateText` on the resilient `this.languageModel(opts?.model ?? 'default', opts?.provider)` proxy with optional `Output.object({ schema })`.
 - **`embed(text)`** (`Tier 1: corge.ai.embed`): Returns `null` if `text.trim().length < 15`; otherwise follows `[ai.provider, ...ai.fallbackProviders]` 1:1 (`'vertex'` → Vertex `text-embedding-005` `768d`, `'openai'` → OpenAI `text-embedding-3-small` `768d`, `'anthropic'` → Jina `jina-embeddings-v3` `768d` via `JINA_API_KEY`).
 
@@ -1120,7 +1120,7 @@ Multi-provider AI dispatch across **Google Cloud Vertex (`vertex`)**, **Anthropi
   - **`step('ocr')`**: Calls `this.#corge.ai.vision(await getDataUrl(), { fallbackVision: breaker.state === 'OPEN', signal })` (strictly 1 OCR pass per document).
   - **`step('vision')`**: Triggered if OCR returned empty markdown, or if an image was classified as `'other'`.
   - **`step('classify')`**: Calls `this.classify(markdown, types)` when `type` was not pre-specified.
-  - **`step('extract')`**: Single-pass structured extraction — when `markdown` is already available and `types[resolvedType]?.schema` exists, calls `this.#corge.ai.generate(markdown, { model: 'fast', schema: types[resolvedType]!.schema, signal })` without re-uploading bytes or running a second OCR pass, then validates via `parseFields()`.
+  - **`step('extract')`**: Single-pass structured extraction — when `markdown` is already available and `types[resolvedType]?.schema` exists, calls `this.#corge.ai.generate(markdown, { model: this.#corge.config.ai.vertex.extractionModel, schema: types[resolvedType]!.schema, signal })` (`gemini-3.5-flash-lite` on `vertex`, mapping automatically to `defaultModel` on `anthropic`/`openai`) without re-uploading bytes or running a second OCR pass, then validates via `parseFields()`.
   - Rejects documents with `< 5` chars and `0` extracted fields as `'EMPTY_OR_UNREADABLE'`.
   - **`step('persist')`**: Writes `{ scan, scanError: null }` to `file/{ref}`. On permanent defect, persists `{ scanError: defect, scan: null }` to `file/{ref}` and throws `NonRetryableError`.
 

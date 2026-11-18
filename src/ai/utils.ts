@@ -50,7 +50,6 @@ export const resolveModelForProvider = (
   const spec = aiCfg[provider]
   if (!requested || requested === 'default') return spec.defaultModel
   if (requested === 'expert') return spec.expertModel
-  if (requested === 'fast') return spec.fastModel
 
   const isNative =
     provider === 'vertex'
@@ -62,7 +61,6 @@ export const resolveModelForProvider = (
 
   const lower = requested.toLowerCase()
   if (/(sonnet|opus|fable|astra|sol|pro|argon|carbon|hydrogen)/.test(lower)) return spec.expertModel
-  if (/(flash|lite|nano)/.test(lower)) return spec.fastModel
   return spec.defaultModel
 }
 

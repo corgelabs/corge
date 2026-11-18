@@ -501,9 +501,12 @@ describe('3x3 Multi-Provider Contracts, Webhooks & Runtime Failover (AI · Email
       }
     })
 
+    assert.equal(corge.config.ai.vertex.extractionModel, 'gemini-3.5-flash-lite')
     assert.equal(resolveModelForProvider('vertex', 'default', corge.config.ai), 'claude-haiku-5-5')
-    assert.equal(resolveModelForProvider('vertex', 'fast', corge.config.ai), 'claude-haiku-5-5')
     assert.equal(resolveModelForProvider('vertex', 'expert', corge.config.ai), 'claude-sonnet-5-5')
+    assert.equal(resolveModelForProvider('vertex', 'gemini-3.5-flash-lite', corge.config.ai), 'gemini-3.5-flash-lite')
+    assert.equal(resolveModelForProvider('openai', 'gemini-3.5-flash-lite', corge.config.ai), 'gpt-6-luna')
+    assert.equal(resolveModelForProvider('anthropic', 'gemini-3.5-flash-lite', corge.config.ai), 'claude-haiku-5-5')
     assert.equal(resolveModelForProvider('openai', 'claude-sonnet-5-5', corge.config.ai), 'gpt-6.2-sol')
     assert.equal(resolveModelForProvider('openai', 'claude-haiku-5-5', corge.config.ai), 'gpt-6-luna')
     assert.equal(resolveModelForProvider('anthropic', 'gpt-6.2-sol', corge.config.ai), 'claude-sonnet-5-5')

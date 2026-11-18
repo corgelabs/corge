@@ -1318,7 +1318,7 @@ describe('4. Batch Attachment Processing & Async Task Lifecycle (/api/process-at
     )
     const elapsedMs = performance.now() - t0
     assert.equal(procRes.status, 200)
-    assert.ok(elapsedMs < 45_000, `Expected parallel fan-out < 45s, took ${Math.round(elapsedMs)}ms`)
+    assert.ok(elapsedMs < 20_000, `Expected parallel fan-out < 20s, took ${Math.round(elapsedMs)}ms`)
     assert.equal(procRes.data.attachments.length, allRefs.length)
     procRes.data.attachments.forEach((item, idx) => {
       const fixture = fixtures[idx]!

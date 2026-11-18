@@ -238,17 +238,16 @@ export class AiService {
   }
 
   #extractAnnotationFromMarkdown = async (
-    provider: AiProvider,
     markdown: string,
     rawSchema: Record<string, unknown>,
     prompt?: string,
     signal?: AbortSignal
   ): Promise<{ annotation: Record<string, unknown>; usage: AiUsageSummary }> => {
     await this.#corge.internals.resilience.acquireLimit('ai')
-    const modelId = resolveModelForProvider(provider, 'fast', this.#corge.config.ai)
+    const modelId = this.#corge.config.ai.vertex.extractionModel
     const { $schema: _$schema, ...cleanSchema } = rawSchema
     const res = await generateText({
-      model: this.languageModel('fast', provider),
+      model: this.languageModel(modelId, 'vertex'),
       system: prompt ?? DEFAULT_EXTRACTION_PROMPT,
       prompt: markdown.slice(0, 120_000),
       output: Output.object({ schema: jsonSchema(cleanSchema) }),
@@ -278,7 +277,7 @@ export class AiService {
         ? aiCfg.anthropic.ocrModel
         : provider === 'openai'
           ? aiCfg.openai.ocrModel
-          : aiCfg.vertex.fastModel
+          : aiCfg.vertex.defaultModel
 
     if (opts?.schema) {
       const { $schema: _$schema, ...cleanSchema } = opts.schema
@@ -363,7 +362,7 @@ export class AiService {
     const mediaType = match?.[1] ?? 'image/jpeg'
     const base64 = match?.[2] ?? documentUrl
     const { text } = await generateText({
-      model: this.languageModel('fast'),
+      model: this.languageModel('default'),
       abortSignal: withSignalTimeout(25_000, signal),
       messages: [
         {
@@ -432,7 +431,7 @@ export class AiService {
         })
 
         if (opts?.schema && markdown) {
-          const ext = await this.#extractAnnotationFromMarkdown('vertex', markdown, opts.schema, opts.prompt, opts?.signal)
+          const ext = await this.#extractAnnotationFromMarkdown(markdown, opts.schema, opts.prompt, opts?.signal)
           annotation = ext.annotation
         }
 
@@ -471,7 +470,7 @@ export class AiService {
         ? aiCfg.anthropic.decisionsModel
         : provider === 'openai'
           ? aiCfg.openai.decisionsModel
-          : aiCfg.vertex.fastModel
+          : aiCfg.vertex.defaultModel
     const { schema, promptBlock } = buildStructuredDecideSpec(questions)
     const stateText = typeof state === 'string' ? state : JSON.stringify(state)
     const res = await generateText({
